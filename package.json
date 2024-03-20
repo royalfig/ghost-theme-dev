@@ -1,6 +1,6 @@
 {
   "name": "ghost-theme-dev",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "A tool for developing and building Ghost themes",
   "main": "index.js",
   "scripts": {
