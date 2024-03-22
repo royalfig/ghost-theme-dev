@@ -1,6 +1,6 @@
 {
-  "name": "@royalfig/gtv",
-  "version": "2.0.0",
+  "name": "@royalfig/gtb",
+  "version": "2.0.1",
   "description": "A tool for developing and building Ghost themes",
   "main": "index.js",
   "scripts": {
@@ -8,7 +8,7 @@
     "start": "node index.js"
   },
   "bin": {
-    "gtv": "./index.js"
+    "gtb": "index.js"
   },
   "keywords": [
     "ghost",
