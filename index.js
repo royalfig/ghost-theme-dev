@@ -29,6 +29,7 @@ const defaultTemplateContent = `<!DOCTYPE html>
 </head>
 <body class="{{body_class}}">
 
+{{ghost_foot}}
 </body>
 </html>`;
 
@@ -46,6 +47,13 @@ const indexTemplateContent = `{{!< default}}
 {{!-- Learn more: https://ghost.org/docs/themes/contexts/index-context/ --}}
 {{/foreach}}`;
 
+const ghostCssContent = `.kg-width-wide {
+
+}
+
+.kg-width-full {
+  
+}`
 let url;
 
 function runCommand(command) {
@@ -64,6 +72,7 @@ async function makeSkeleton() {
     { filename: "post.hbs", content: postTemplateContent },
     { filename: "default.hbs", content: defaultTemplateContent },
     { filename: "assets/css/index.css", content: null },
+    { filename: "assets/css/ghost.css", content: null },
     { filename: "assets/js/index.js", content: null },
   ];
   const folderPath = process.cwd();
