@@ -14,23 +14,23 @@ import WebSocket, { WebSocketServer } from "ws";
 
 const defaultTemplateContent = `<!DOCTYPE html>
 <html lang="{{@site.locale}}">
-<head>
-    {{!-- Basic meta - advanced meta is output with {{ghost_head}} below --}}
-    <title>{{meta_title}}</title>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <head>
+      {{!-- Basic meta - advanced meta is output with {{ghost_head}} below --}}
+      <title>{{meta_title}}</title>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-    {{!-- Theme assets - use the {{asset}} helper to reference styles & scripts, this will take care of caching and cache-busting automatically --}}
-    <link rel="stylesheet" type="text/css" href="{{asset "built/css/index.css"}}">
-    <script src="{{asset "built/js/index.js"}}" defer></script>
+      {{!-- Theme assets - use the {{asset}} helper to reference styles & scripts, this will take care of caching and cache-busting automatically --}}
+      <link rel="stylesheet" type="text/css" href="{{asset "built/css/index.css"}}">
+      <script src="{{asset "built/js/index.js"}}" defer></script>
 
-    {{!-- This tag outputs all your advanced SEO meta, structured data, and other important settings, it should always be the last tag before the closing head tag --}}
-    {{ghost_head}}
-</head>
-<body class="{{body_class}}">
+      {{!-- This tag outputs all your advanced SEO meta, structured data, and other important settings, it should always be the last tag before the closing head tag --}}
+      {{ghost_head}}
+  </head>
+  <body class="{{body_class}}">
 
-{{ghost_foot}}
-</body>
+  {{ghost_foot}}
+  </body>
 </html>`;
 
 const postTemplateContent = `{{!< default}}
@@ -48,12 +48,17 @@ const indexTemplateContent = `{{!< default}}
 {{/foreach}}`;
 
 const ghostCssContent = `.kg-width-wide {
-
+  /* Styles for wide images in the editor */
 }
 
 .kg-width-full {
-  
+  /* Styles for full-width images in the editor */
 }`
+
+const indexCssContent = `@import "ghost.css";
+
+`
+
 let url;
 
 function runCommand(command) {
@@ -66,14 +71,21 @@ function runCommand(command) {
   }
 }
 
+let skeleton = false
+
 async function makeSkeleton() {
+  if (skeleton) {
+    return
+  }
+
   const filesToCheck = [
     { filename: "index.hbs", content: indexTemplateContent },
     { filename: "post.hbs", content: postTemplateContent },
     { filename: "default.hbs", content: defaultTemplateContent },
-    { filename: "assets/css/index.css", content: null },
-    { filename: "assets/css/ghost.css", content: null },
+    { filename: "assets/css/index.css", content: indexCssContent },
+    { filename: "assets/css/ghost.css", content: ghostCssContent },
     { filename: "assets/js/index.js", content: null },
+    { filename: ".vscode/extensions.json", content: `{"recommendations": ["TryGhost.ghost"]}`}
   ];
   const folderPath = process.cwd();
   try {
@@ -106,6 +118,8 @@ async function makeSkeleton() {
   } catch (error) {
     console.log(error);
   }
+
+  skeleton = true
 }
 
 async function symLinkTheme() {}
@@ -121,7 +135,6 @@ async function parseGhostCliOutput() {
     process.exit(1);
   }
   if (localUrl.length > 1) {
-    console.log(localUrl);
     const details = await Promise.all(
       localUrl.map(async (u) => {
         const output = runCommand(`curl -s ${u}`) || "";
@@ -195,7 +208,6 @@ async function findFilesRecursively(directory) {
 
 async function findEntryPoints(entryPointPath, exts) {
   const directory = entryPointPath;
-
   try {
     const files = await findFilesRecursively(directory);
     const entryPoints = files.filter(
@@ -240,7 +252,7 @@ async function init() {
 
   if (isWatch) {
     url = await parseGhostCliOutput();
-    initWs(jsEntryPoints, cssEntryPoints, res);
+    initWs(res);
   } else {
     printCompilationDetails(res);
     console.log(chalk.green("⬥"), "  Files built successfully. Exiting...");
@@ -347,7 +359,7 @@ function printHeader(connectionError = false, firstConnection = false) {
   }
   console.log("");
 }
-async function initWs(jsEntry, cssEntry, res) {
+async function initWs(res) {
   const int = setTimeout(() => {
     console.clear();
     printHeader(true);
@@ -378,6 +390,10 @@ async function initWs(jsEntry, cssEntry, res) {
 
       if (!/index\.(css|js|ts)$/.test(path)) {
         rootFile = tree.get(path);
+      }
+
+      if (!rootFile) {
+        return;
       }
 
       const res = await writeAssets([rootFile]);
