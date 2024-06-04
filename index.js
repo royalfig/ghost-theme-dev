@@ -12,6 +12,29 @@ import WebSocket, { WebSocketServer } from "ws";
 
 /* eslint-disable no-console */
 
+const ghActionContent = `# Learn more → https://github.com/TryGhost/action-deploy-theme#getting-started
+name: Build and deploy theme
+on:
+  push:
+    branches:
+      - main
+jobs:
+  build: 
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+      - run: npm ci
+      - run: npm run build
+      - name: Deploy theme
+        uses: TryGhost/action-deploy-theme@v1
+        with:
+          api-url: \${{ secrets.GHOST_ADMIN_API_URL }}
+          api-key: \${{ secrets.GHOST_ADMIN_API_KEY }}`
+
 const defaultTemplateContent = `<!DOCTYPE html>
 <html lang="{{@site.locale}}">
   <head>
@@ -29,6 +52,9 @@ const defaultTemplateContent = `<!DOCTYPE html>
   </head>
   <body class="{{body_class}}">
 
+  {{{body}}}
+
+  {{!-- Ghost outputs required functional scripts with this tag, it should always be the last thing before the closing body tag --}}
   {{ghost_foot}}
   </body>
 </html>`;
@@ -47,7 +73,8 @@ const indexTemplateContent = `{{!< default}}
 {{!-- Learn more: https://ghost.org/docs/themes/contexts/index-context/ --}}
 {{/foreach}}`;
 
-const ghostCssContent = `.kg-width-wide {
+const ghostCssContent = `/* Learn more about Ghost image styles -> https://ghost.org/docs/themes/content/#image-size-options */
+{
   /* Styles for wide images in the editor */
 }
 
@@ -71,13 +98,8 @@ function runCommand(command) {
   }
 }
 
-let skeleton = false
 
 async function makeSkeleton() {
-  if (skeleton) {
-    return
-  }
-
   const filesToCheck = [
     { filename: "index.hbs", content: indexTemplateContent },
     { filename: "post.hbs", content: postTemplateContent },
@@ -85,9 +107,12 @@ async function makeSkeleton() {
     { filename: "assets/css/index.css", content: indexCssContent },
     { filename: "assets/css/ghost.css", content: ghostCssContent },
     { filename: "assets/js/index.js", content: null },
-    { filename: ".vscode/extensions.json", content: `{"recommendations": ["TryGhost.ghost"]}`}
+    { filename: ".vscode/extensions.json", content: `{"recommendations": ["TryGhost.ghost"]}`},
+    { filename: ".github/deploy-theme.yaml", content: ghActionContent}
   ];
+
   const folderPath = process.cwd();
+  
   try {
     const results = await Promise.all(
       filesToCheck.map(async (file) => {
@@ -119,7 +144,6 @@ async function makeSkeleton() {
     console.log(error);
   }
 
-  skeleton = true
 }
 
 async function symLinkTheme() {}
@@ -179,6 +203,7 @@ function formatBytes(bytes, decimals = 2) {
 }
 
 const isWatch = argv.includes("--watch");
+const isInit = argv.includes("--init");
 
 const watcher = chokidar.watch(".", {
   ignored: [/(^|[\/\\])\../, "**/built/**", "dev.js", "node_modules"], // ignore dotfiles
@@ -245,7 +270,7 @@ function printCompilationDetails(content, change, firstTime = false) {
 }
 
 async function init() {
-  await makeSkeleton();
+  isInit && await makeSkeleton();
   const jsEntryPoints = await findEntryPoints("assets/js", [".ts", ".js"]);
   const cssEntryPoints = await findEntryPoints("assets/css", [".css"]);
   const res = await writeAssets([...jsEntryPoints, ...cssEntryPoints]);
