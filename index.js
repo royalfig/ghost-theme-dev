@@ -74,7 +74,7 @@ const indexTemplateContent = `{{!< default}}
 {{/foreach}}`;
 
 const ghostCssContent = `/* Learn more about Ghost image styles -> https://ghost.org/docs/themes/content/#image-size-options */
-{
+.kg-width-wide {
   /* Styles for wide images in the editor */
 }
 
