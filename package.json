@@ -1,6 +1,6 @@
 {
   "name": "@royalfig/gtb",
-  "version": "2.0.10",
+  "version": "2.0.11",
   "description": "A tool for developing and building Ghost themes",
   "main": "index.js",
   "scripts": {
