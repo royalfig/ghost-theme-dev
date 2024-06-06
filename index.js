@@ -9,6 +9,7 @@ import { readdir, writeFile, stat, access, mkdir } from "node:fs/promises";
 import { join, dirname } from "node:path";
 import { argv } from "node:process";
 import WebSocket, { WebSocketServer } from "ws";
+import { getPortPromise } from "portfinder";
 
 /* eslint-disable no-console */
 
@@ -107,12 +108,12 @@ async function makeSkeleton() {
     { filename: "assets/css/index.css", content: indexCssContent },
     { filename: "assets/css/ghost.css", content: ghostCssContent },
     { filename: "assets/js/index.js", content: null },
-    { filename: ".vscode/extensions.json", content: `{"recommendations": ["TryGhost.ghost"]}`},
-    { filename: ".github/deploy-theme.yaml", content: ghActionContent}
+    { filename: ".vscode/extensions.json", content: `{"recommendations": ["TryGhost.ghost"]}` },
+    { filename: ".github/deploy-theme.yaml", content: ghActionContent }
   ];
 
   const folderPath = process.cwd();
-  
+
   try {
     const results = await Promise.all(
       filesToCheck.map(async (file) => {
@@ -146,9 +147,17 @@ async function makeSkeleton() {
 
 }
 
-async function symLinkTheme() {}
+async function symLinkTheme() { }
 
 async function parseGhostCliOutput() {
+
+  try { execSync("npm ls ghost-cli -g --depth=0") } catch (error) {
+    console.log(
+      "Ghost CLI is not installed. To install Ghost CLI, run `npm install -g ghost-cli`."
+    );
+    process.exit(1);
+  };
+
   const result = runCommand("ghost ls");
   const localUrl = result.match(/http:\/\/(localhost|127\.0\.0\.1):\d+/g);
 
@@ -256,8 +265,7 @@ function printCompilationDetails(content, change, firstTime = false) {
   content.results.forEach(({ file, value }) => {
     console.log(
       chalk.dim(`┃`),
-      ` ${
-        change ? change + chalk.bold.magenta(" → ") : ""
+      ` ${change ? change + chalk.bold.magenta(" → ") : ""
       }${file} (${chalk.bold.magenta(value)})`
     );
   });
@@ -287,9 +295,9 @@ async function init() {
 
 const tree = new Map();
 
-async function writeAssets(jsEntryPoints) {
+async function writeAssets(jsEntryPoints, port) {
   const start = performance.now();
-  const footerScript = `const socket = new WebSocket('ws://localhost:3000');
+  const footerScript = `const socket = new WebSocket('ws://localhost:${port}');
   socket.addEventListener("open", (event) => {
       const url = window.location.href;
       const title = document.title;
@@ -384,6 +392,7 @@ function printHeader(connectionError = false, firstConnection = false) {
   }
   console.log("");
 }
+
 async function initWs(res) {
   const int = setTimeout(() => {
     console.clear();
@@ -392,8 +401,10 @@ async function initWs(res) {
   printHeader();
   printCompilationDetails(res, null, true);
 
+  const port = await getPortPromise({ port: 3000 })
+
   const wss = new WebSocketServer({
-    port: 3000,
+    port,
   });
 
   let firstConnection = true;
@@ -421,7 +432,7 @@ async function initWs(res) {
         return;
       }
 
-      const res = await writeAssets([rootFile]);
+      const res = await writeAssets([rootFile], port);
 
       printHeader(false, false);
       printCompilationDetails(res, path);
