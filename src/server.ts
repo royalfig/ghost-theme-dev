@@ -1,6 +1,6 @@
 import chalk from "chalk";
 import WebSocket, { WebSocketServer } from "ws";
-import chokidar from "chokidar";
+import { FSWatcher } from "chokidar";
 import { CompilationDetails, tree, writeAssets } from "./builder.js";
 import { GtbConfig, logToFile } from "./utils.js";
 
@@ -70,7 +70,7 @@ export async function initWs(
     res: CompilationDetails, 
     port: number, 
     url: string, 
-    watcher: chokidar.FSWatcher,
+    watcher: FSWatcher,
     config?: GtbConfig
 ) {
   const int = setTimeout(() => {
@@ -86,7 +86,7 @@ export async function initWs(
 
   let firstConnection = true;
 
-  watcher.on("all", async (event, path) => {
+  watcher.on("all", async (event: string, path: string) => {
     logToFile(`File event: ${event} on ${path}`);
     if (path.endsWith(".hbs")) {
       printHeader(url, false, false);
