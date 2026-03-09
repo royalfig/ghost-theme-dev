@@ -70,6 +70,10 @@
     "tsx": "^4.21.0",
     "typescript": "^5.0.0"
   },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/royalfig/ghost-theme-dev"
+  },
   "publishConfig": {
     "access": "public"
   }
