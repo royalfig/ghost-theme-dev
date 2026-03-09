@@ -1,30 +1,75 @@
 {
   "name": "@royalfig/gtb",
-  "version": "2.0.11",
-  "description": "A tool for developing and building Ghost themes",
-  "main": "index.js",
+  "version": "3.0.0",
+  "description": "A modern tool for developing and building Ghost themes with esbuild, Tailwind, and Live Reload",
+  "main": "dist/index.js",
+  "type": "module",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "node index.js"
+    "start": "node dist/index.js",
+    "build": "tsc",
+    "dev": "tsx watch src/index.ts",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run clean && npm run build"
   },
   "bin": {
-    "gtb": "index.js"
+    "gtb": "dist/index.js"
   },
+  "files": [
+    "dist",
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
   "keywords": [
     "ghost",
-    "theme"
+    "theme",
+    "development",
+    "build",
+    "esbuild",
+    "tailwind",
+    "livereload"
   ],
   "author": "Ryan Feigenbaum",
   "license": "MIT",
   "dependencies": {
+    "@inquirer/confirm": "^6.0.8",
+    "@inquirer/input": "^5.0.8",
     "@inquirer/select": "^2.2.0",
+    "@tailwindcss/postcss": "^4.2.1",
+    "@tryghost/admin-api": "^1.14.6",
+    "archiver": "^7.0.1",
+    "autoprefixer": "^10.4.27",
     "chalk": "^5.3.0",
     "chokidar": "^3.6.0",
     "esbuild": "^0.20.2",
+    "esbuild-style-plugin": "^1.6.3",
+    "gscan": "^3.3.1",
+    "imagemin": "^9.0.1",
+    "imagemin-mozjpeg": "^10.0.0",
+    "imagemin-pngquant": "^10.0.0",
+    "imagemin-svgo": "^12.0.0",
+    "open": "^11.0.0",
     "portfinder": "^1.0.32",
+    "postcss": "^8.5.8",
+    "postcss-import": "^16.1.1",
+    "tailwindcss": "^4.2.1",
     "ws": "^8.16.0"
   },
-  "type": "module",
+  "devDependencies": {
+    "@types/archiver": "^7.0.0",
+    "@types/autoprefixer": "^9.7.2",
+    "@types/chokidar": "^1.7.5",
+    "@types/imagemin": "^9.0.1",
+    "@types/imagemin-mozjpeg": "^8.0.4",
+    "@types/imagemin-pngquant": "^7.0.0",
+    "@types/imagemin-svgo": "^11.0.0",
+    "@types/node": "^22.0.0",
+    "@types/postcss-import": "^14.0.3",
+    "@types/ws": "^8.18.1",
+    "tsx": "^4.21.0",
+    "typescript": "^5.0.0"
+  },
   "publishConfig": {
     "access": "public"
   }

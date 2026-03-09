@@ -1,1 +1,8 @@
 node_modules
+dist
+.env
+.env.*
+*.zip
+.DS_Store
+package-lock.json
+/built
