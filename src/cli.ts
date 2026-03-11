@@ -27,6 +27,15 @@ import {
     DEFAULT_TEMPLATE_CONTENT, 
     POST_TEMPLATE_CONTENT, 
     INDEX_TEMPLATE_CONTENT, 
+    PAGE_TEMPLATE_CONTENT,
+    AUTHOR_TEMPLATE_CONTENT,
+    TAG_TEMPLATE_CONTENT,
+    ERROR_404_TEMPLATE_CONTENT,
+    HEADER_PARTIAL_CONTENT,
+    FOOTER_PARTIAL_CONTENT,
+    CARD_PARTIAL_CONTENT,
+    NAVIGATION_PARTIAL_CONTENT,
+    PAGINATION_PARTIAL_CONTENT,
     GHOST_CSS_CONTENT, 
     INDEX_CSS_CONTENT,
     PACKAGE_JSON_TEMPLATE,
@@ -49,18 +58,27 @@ export async function makeSkeleton() {
       message: "Choose a starter kit:",
       choices: [
           { name: "Standard (TypeScript + PostCSS)", value: "standard" },
-          { name: "Tailwind (TypeScript + Tailwind v4)", value: "tailwind" }
+          { name: "Tailwind (TypeScript + Tailwind v4 + Typography)", value: "tailwind" }
       ]
   });
 
   const filesToCheck = [
     { filename: "index.hbs", content: INDEX_TEMPLATE_CONTENT },
     { filename: "post.hbs", content: POST_TEMPLATE_CONTENT },
+    { filename: "page.hbs", content: PAGE_TEMPLATE_CONTENT },
+    { filename: "author.hbs", content: AUTHOR_TEMPLATE_CONTENT },
+    { filename: "tag.hbs", content: TAG_TEMPLATE_CONTENT },
+    { filename: "error-404.hbs", content: ERROR_404_TEMPLATE_CONTENT },
     { filename: "default.hbs", content: DEFAULT_TEMPLATE_CONTENT },
     { filename: "assets/css/ghost.css", content: GHOST_CSS_CONTENT },
     { filename: "assets/js/index.ts", content: "import { initDarkMode } from './darkMode';\n\ninitDarkMode();" },
     { filename: "assets/js/darkMode.ts", content: DARK_MODE_HANDLER_JS },
     { filename: "assets/js/critical.ts", content: DARK_MODE_CRITICAL_JS },
+    { filename: "partials/header.hbs", content: HEADER_PARTIAL_CONTENT },
+    { filename: "partials/footer.hbs", content: FOOTER_PARTIAL_CONTENT },
+    { filename: "partials/card.hbs", content: CARD_PARTIAL_CONTENT },
+    { filename: "partials/navigation.hbs", content: NAVIGATION_PARTIAL_CONTENT },
+    { filename: "partials/pagination.hbs", content: PAGINATION_PARTIAL_CONTENT },
     { filename: "partials/dark-mode-toggle.hbs", content: DARK_MODE_TOGGLE_HBS },
     { filename: ".vscode/extensions.json", content: `{"recommendations": ["TryGhost.ghost"]}` },
     { filename: ".github/deploy-theme.yaml", content: GH_ACTION_CONTENT },
