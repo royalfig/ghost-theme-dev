@@ -11,19 +11,17 @@ import {
     readFile as readFilePromise,
     lstat as lstatPromise,
     readlink as readlinkPromise,
-    unlink as unlinkPromise
+    unlink as unlinkPromise,
+    copyFile as copyFilePromise
 } from "node:fs/promises";
 import { join, dirname, basename, resolve } from "node:path";
 import gscan from "gscan";
 import archiver from "archiver";
 import chalk from "chalk";
 import GhostAdminApi from "@tryghost/admin-api";
-import imagemin from "imagemin";
-import imageminSvgo from "imagemin-svgo";
-import imageminMozjpeg from "imagemin-mozjpeg";
-import imageminPngquant from "imagemin-pngquant";
+import sharp from "sharp";
 
-import { runCommand, hasCommand, checkNodeVersion, downloadFile } from "./utils.js";
+import { runCommand, hasCommand, checkNodeVersion, downloadFile, findFilesRecursively } from "./utils.js";
 import { 
     GH_ACTION_CONTENT, 
     DEFAULT_TEMPLATE_CONTENT, 
@@ -191,14 +189,33 @@ export async function zipTheme() {
 
     console.log(chalk.blue("⬥"), " Optimizing images...");
     try {
-        await imagemin(["assets/img/**/*.{jpg,png,svg}"], {
-            destination: "assets/built/img",
-            plugins: [
-                (imageminMozjpeg as any)({ quality: 80 }),
-                (imageminPngquant as any)({ quality: [0.6, 0.8] }),
-                (imageminSvgo as any)()
-            ]
-        });
+        const imgDir = join(folderPath, "assets/img");
+        const builtImgDir = join(folderPath, "assets/built/img");
+        
+        if (existsSync(imgDir)) {
+            const files = await findFilesRecursively(imgDir);
+            const imageFiles = files.filter(f => /\.(jpg|jpeg|png|webp|avif|svg)$/i.test(f));
+            
+            for (const file of imageFiles) {
+                const relativePath = file.replace(imgDir, "");
+                const targetPath = join(builtImgDir, relativePath);
+                const targetDir = dirname(targetPath);
+                
+                if (!existsSync(targetDir)) await mkdirPromise(targetDir, { recursive: true });
+                
+                if (file.toLowerCase().endsWith(".svg")) {
+                    await copyFilePromise(file, targetPath);
+                } else {
+                    await sharp(file)
+                        .rotate() // Auto-rotate based on EXIF
+                        .resize({ width: 2000, withoutEnlargement: true }) // Reasonable max width
+                        .jpeg({ quality: 80, progressive: true, force: false })
+                        .png({ quality: 80, palette: true, force: false })
+                        .webp({ quality: 80, force: false })
+                        .toFile(targetPath);
+                }
+            }
+        }
     } catch (e) {
         console.log(chalk.yellow("┃"), " Image optimization skipped or failed.");
     }
