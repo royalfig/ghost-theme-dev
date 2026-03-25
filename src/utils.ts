@@ -150,10 +150,33 @@ export async function findFilesRecursively(directory: string): Promise<string[]>
 
 export async function findEntryPoints(entryPointPath: string, exts: string[]): Promise<string[]> {
   try {
-    const files = await findFilesRecursively(entryPointPath);
-    const entryPoints = files.filter(
-      (file) => (file.includes("index") || file.includes("critical")) && exts.some((ext) => file.endsWith(ext))
-    );
+    const { readdir } = await import("node:fs/promises");
+    const { join } = await import("node:path");
+    const entryPoints: string[] = [];
+    const entries = await readdir(entryPointPath, { withFileTypes: true });
+
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        if (entry.name === "built" || entry.name === "dist" || entry.name === "node_modules") continue;
+
+        const subDirPath = join(entryPointPath, entry.name);
+        try {
+          const subEntries = await readdir(subDirPath, { withFileTypes: true });
+          for (const subEntry of subEntries) {
+            if (!subEntry.isDirectory()) {
+              if ((subEntry.name.includes("index") || subEntry.name.includes("critical")) &&
+                  exts.some((ext) => subEntry.name.endsWith(ext))) {
+                entryPoints.push(join(subDirPath, subEntry.name));
+              }
+            }
+          }
+        } catch (e) { /* ignore */ }
+      } else {
+        if (exts.some(ext => entry.name.endsWith(ext))) {
+          entryPoints.push(join(entryPointPath, entry.name));
+        }
+      }
+    }
     return entryPoints;
   } catch (error) {
     return [];

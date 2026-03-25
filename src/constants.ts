@@ -5,7 +5,7 @@ on:
     branches:
       - main
 jobs:
-  build: 
+  build:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -27,7 +27,7 @@ export const DEFAULT_TEMPLATE_CONTENT = `<!DOCTYPE html>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{{meta_title}}</title>
-    
+
     {{!-- Critical script for dark mode to prevent flash --}}
     <script src="{{asset "built/js/critical.js"}}"></script>
 
@@ -86,7 +86,7 @@ export const POST_TEMPLATE_CONTENT = `{{!< default}}
 
     {{#if feature_image}}
     <div class="max-w-5xl mx-auto mb-16 rounded-3xl overflow-hidden shadow-2xl">
-        <img 
+        <img
             class="w-full h-auto object-cover max-h-[600px]"
             srcset="{{img_url feature_image size="s"}} 300w,
                     {{img_url feature_image size="m"}} 600w,
@@ -131,7 +131,7 @@ export const PAGE_TEMPLATE_CONTENT = `{{!< default}}
 
     {{#if feature_image}}
     <div class="max-w-5xl mx-auto mb-16 rounded-3xl overflow-hidden shadow-2xl">
-        <img 
+        <img
             class="w-full h-auto object-cover max-h-[500px]"
             src="{{img_url feature_image size="l"}}"
             alt="{{title}}"
@@ -215,7 +215,7 @@ export const ERROR_404_TEMPLATE_CONTENT = `{{!< default}}
 export const CARD_PARTIAL_CONTENT = `<article class="flex flex-col gap-4 group">
     {{#if feature_image}}
     <a href="{{url}}" class="aspect-video overflow-hidden rounded-lg">
-        <img 
+        <img
             class="object-cover w-full h-full transform transition duration-500 group-hover:scale-105"
             src="{{img_url feature_image size="m"}}"
             alt="{{title}}"
@@ -233,7 +233,7 @@ export const CARD_PARTIAL_CONTENT = `<article class="flex flex-col gap-4 group">
                 <time datetime="{{date format="YYYY-MM-DD"}}">{{date format="D MMM YYYY"}}</time>
             </span>
         </div>
-        
+
         <a href="{{url}}">
             <h2 class="text-2xl font-bold leading-tight tracking-tight group-hover:text-brand transition-colors">
                 {{title}}
@@ -297,7 +297,7 @@ export const PAGINATION_PARTIAL_CONTENT = `<nav class="flex items-center justify
             </a>
         {{/if}}
     </div>
-    
+
     <div class="hidden md:flex">
         <span class="inline-flex items-center pt-4 text-sm font-medium">
             Page {{page}} of {{pages}}
@@ -329,15 +329,6 @@ export const INDEX_CSS_CONTENT = `@import "ghost.css";
 .border-brand { border-color: var(--color-brand); }
 `;
 
-export const TAILWIND_V4_CSS = `@import "tailwindcss";
-@plugin "@tailwindcss/typography";
-
-@theme {
-  --color-brand: #3eb0ef;
-  --color-muted-foreground: oklch(0.556 0 0);
-}
-`;
-
 export const PACKAGE_JSON_TEMPLATE = (name: string) => `{
   "name": "${name}",
   "description": "A new Ghost theme",
@@ -366,7 +357,6 @@ export const PACKAGE_JSON_TEMPLATE = (name: string) => `{
   },
   "devDependencies": {
     "@royalfig/gtb": "latest",
-    "@tailwindcss/typography": "^0.5.15",
     "eslint": "^9.0.0",
     "@typescript-eslint/eslint-plugin": "^7.0.0",
     "@typescript-eslint/parser": "^7.0.0",
@@ -412,18 +402,8 @@ export const STYLELINT_CONFIG_TEMPLATE = `{
 }
 `;
 
-export const TAILWIND_CONFIG_TEMPLATE = `/** @type {import('tailwindcss').Config} */
-export default {
-  content: ["./*.hbs", "./partials/**/*.hbs", "./assets/js/**/*.ts", "./assets/js/**/*.js"],
-  theme: {
-    extend: {},
-  },
-}
-`;
-
 export const POSTCSS_CONFIG_TEMPLATE = `export default {
   plugins: {
-    tailwindcss: {},
     autoprefixer: {},
   },
 }
@@ -467,4 +447,5 @@ export const ASSET_LOADERS = {
   ".woff2": "file",
   ".ttf": "file",
   ".otf": "file",
+  ".css": "css",
 } as const;

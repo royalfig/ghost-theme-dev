@@ -1,18 +1,23 @@
 import chalk from "chalk";
+import { readFileSync } from "node:fs";
 import WebSocket, { WebSocketServer } from "ws";
 import { FSWatcher } from "chokidar";
 import { CompilationDetails, tree, writeAssets } from "./builder.js";
 import { GtbConfig, logToFile } from "./utils.js";
 
 export interface SiteData {
-    url: string;
-    title: string;
-    version: string | null;
+  url: string;
+  title: string;
+  version: string | null;
 }
 
 let siteData: SiteData | null = null;
 
-export function printCompilationDetails(content: CompilationDetails, change?: string | null, firstTime = false) {
+export function printCompilationDetails(
+  content: CompilationDetails,
+  change?: string | null,
+  firstTime = false,
+) {
   if (firstTime) {
     console.log(chalk.dim(`┏━ Building...`));
     console.log(chalk.dim("┃"));
@@ -24,54 +29,64 @@ export function printCompilationDetails(content: CompilationDetails, change?: st
   content.results.forEach(({ file, value }) => {
     console.log(
       chalk.dim(`┃`),
-      ` ${change ? change + chalk.bold.magenta(" → ") : ""
-      }${file} (${chalk.bold.magenta(value)})`
+      ` ${
+        change ? change + chalk.bold.magenta(" → ") : ""
+      }${file} (${chalk.bold.magenta(value)})`,
     );
   });
   console.log(chalk.dim("┃"));
   console.log(
     `${chalk.dim("┗━ Done in")} ${content.time.toFixed(2)}ms ${chalk.dim(
-      "at"
-    )} ${new Date().toLocaleTimeString(undefined, { timeStyle: "short" })}\n`
+      "at",
+    )} ${new Date().toLocaleTimeString(undefined, { timeStyle: "short" })}\n`,
   );
 }
 
-export function printHeader(url: string, connectionError = false, firstConnection = false) {
+export function printHeader(
+  url: string,
+  connectionError = false,
+  firstConnection = false,
+) {
+  const pkg = JSON.parse(
+    readFileSync(new URL("../package.json", import.meta.url), "utf-8"),
+  );
   console.clear();
-  console.log(`${chalk.bold.green("●")}  Ghost theme dev server running...`);
+  console.log(
+    `${chalk.bold.green("●")}  Ghost theme dev server running (v${pkg.version})...`,
+  );
 
   if (connectionError) {
     console.log(
       chalk.redBright.bold("✘  No connection. "),
-      `Try refreshing your browser or visiting ${chalk.underline.blue(url)}.`
+      `Try refreshing your browser or visiting ${chalk.underline.blue(url)}.`,
     );
   } else if (firstConnection) {
     console.log(
       chalk.blueBright.bold("➜"),
-      ` Connected to ${chalk.underline.blue(url)}.`
+      ` Connected to ${chalk.underline.blue(url)}.`,
     );
   } else if (siteData?.version) {
     console.log(
       chalk.blueBright.bold("➜"),
       ` Connected to ${chalk.underline.blue(siteData.url)} ${chalk.dim(
-        `(${siteData.version})`
-      )}`
+        `(${siteData.version})`,
+      )}`,
     );
   } else {
     console.log(
       chalk.blueBright.bold("➜"),
-      ` Visit ${chalk.underline.blue(url)} to see your changes live.`
+      ` Visit ${chalk.underline.blue(url)} to see your changes live.`,
     );
   }
   console.log("");
 }
 
 export async function initWs(
-    res: CompilationDetails, 
-    port: number, 
-    url: string, 
-    watcher: FSWatcher,
-    config?: GtbConfig
+  res: CompilationDetails,
+  port: number,
+  url: string,
+  watcher: FSWatcher,
+  config?: GtbConfig,
 ) {
   const int = setTimeout(() => {
     console.clear();
@@ -98,6 +113,19 @@ export async function initWs(
           client.send("HBS changed: " + path);
         }
       });
+    }
+
+    // Filter out build artifacts that should not trigger rebuilds
+    const isBuildArtifact =
+      path.endsWith(".d.ts") ||
+      path.endsWith(".map") ||
+      path.includes("/assets/built/") ||
+      path.includes("\\assets\\built\\") ||
+      path.startsWith("assets/built/") ||
+      path.startsWith("assets\\built\\");
+
+    if (isBuildArtifact) {
+      return;
     }
 
     if (path.endsWith(".css") || path.endsWith(".js") || path.endsWith(".ts")) {
@@ -136,10 +164,10 @@ export async function initWs(
 
     ws.on("message", (message: string) => {
       try {
-          const data = JSON.parse(message);
-          siteData = data;
+        const data = JSON.parse(message);
+        siteData = data;
       } catch (e) {
-          // Ignore malformed messages
+        // Ignore malformed messages
       }
     });
   });
