@@ -158,7 +158,7 @@ export const CARD_PARTIAL_CONTENT = `<article class="">
             {{#primary_tag}}
                 <span class="">{{name}}</span>
             {{/primary_tag}}
-            <span class="text-muted-foreground">
+            <span class="">
                 <time datetime="{{date format='YYYY-MM-DD'}}">{{date format='D MMM YYYY'}}</time>
             </span>
         </div>
@@ -184,17 +184,17 @@ export const FOOTER_PARTIAL_CONTENT = `<footer class="">
             <div>
                 &copy; {{date format='YYYY'}} {{@site.title}}. All rights reserved.
             </div>
-            <div class="flex items-center gap-6">
+            <div class="">
                 {{navigation type="secondary"}}
             </div>
         </div>
     </div>
 </footer>`;
 
-export const NAVIGATION_PARTIAL_CONTENT = `<ul class="flex items-center gap-8 list-none p-0 m-0">
+export const NAVIGATION_PARTIAL_CONTENT = `<ul class="">
     {{#foreach navigation}}
         <li class="{{link_class for=url class=(concat 'nav-' slug)}}">
-            <a href="{{url absolute='true'}}" class="text-sm font-semibold hover:text-brand transition-colors">{{label}}</a>
+            <a href="{{url absolute='true'}}" class="">{{label}}</a>
         </li>
     {{/foreach}}
 </ul>`;
@@ -206,14 +206,83 @@ export const GHOST_CSS_CONTENT = `/* Ghost image styles */
 
 export const INDEX_CSS_CONTENT = `@import "ghost.css";
 
-:root {
-    --color-brand: #3eb0ef;
+`;
+
+export const CRITICAL_CSS_CONTENT = `
+/* Box sizing rules */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
 }
 
-.text-brand { color: var(--color-brand); }
-.bg-brand { background-color: var(--color-brand); }
-.border-brand { border-color: var(--color-brand); }
-`;
+/* Prevent font size inflation */
+html {
+  -moz-text-size-adjust: none;
+  -webkit-text-size-adjust: none;
+  text-size-adjust: none;
+}
+
+/* Remove default margin in favour of better control in authored CSS */
+body, h1, h2, h3, h4, p,
+figure, blockquote, dl, dd {
+  margin-block-end: 0;
+}
+
+/* Remove list styles on ul, ol elements with a list role, which suggests default styling will be removed */
+ul[role='list'],
+ol[role='list'] {
+  list-style: none;
+}
+
+/* Set core body defaults */
+body {
+  min-height: 100vh;
+  line-height: 1.5;
+}
+
+/* Set shorter line heights on headings and interactive elements */
+h1, h2, h3, h4,
+button, input, label {
+  line-height: 1.1;
+}
+
+/* Balance text wrapping on headings */
+h1, h2,
+h3, h4 {
+  text-wrap: balance;
+}
+
+/* A elements that don't have a class get default styles */
+a:not([class]) {
+  text-decoration-skip-ink: auto;
+  color: currentColor;
+}
+
+/* Make images easier to work with */
+img,
+picture {
+  max-width: 100%;
+  display: block;
+}
+
+/* Inherit fonts for inputs and buttons */
+input, button,
+textarea, select {
+  font-family: inherit;
+  font-size: inherit;
+}
+
+/* Make sure textareas without a rows attribute are not tiny */
+textarea:not([rows]) {
+  min-height: 10em;
+}
+
+/* Anything that has been anchored to should have extra scroll margin */
+:target {
+  scroll-margin-block: 5ex;
+}
+`
 
 export const PACKAGE_JSON_TEMPLATE = (name: string) => `{
   "name": "${name}",
@@ -380,14 +449,25 @@ export const DARK_MODE_HANDLER_JS = `export function darkModeHandler() {
   );
 }
 
+export function toggleDarkModeShareButton(newMode: string) {
+  const shareButton = document.querySelector("share-button");
+
+  if (!shareButton) {
+    return;
+  }
+
+  const modeAsBool = newMode === "dark" ? "true" : "false";
+  shareButton?.setAttribute("dark-mode", modeAsBool);
+}
+
 export function invertMode() {
   const currentMode = document.documentElement.dataset.mode!;
   return currentMode === "dark" ? "light" : "dark";
 }`;
 
 export const DARK_MODE_TOGGLE_HBS = `<button class="gtb-dark-mode-toggle" aria-label="Toggle dark mode">
-    <span class="gtb-dark-mode">🌙</span>
-    <span class="gtb-light-mode">☀️</span>
+    <span class="gtb-dark-mode">Dark</span>
+    <span class="gtb-light-mode">Light</span>
 </button>`;
 
 export const ASSET_LOADERS = {
@@ -401,4 +481,10 @@ export const ASSET_LOADERS = {
     ".ttf": "file",
     ".otf": "file"
 } as const;
+
+export const GITIGNORE_CONTENT = `node_modules
+assets/built
+.DS_Store
+
+.env`;
 

@@ -141,7 +141,6 @@ export async function writeAssets(
 
   try {
     const results: BuildResult[] = [];
-    let builtCritical = false;
 
     const builds = [];
     if (mainEntry) {
@@ -159,7 +158,6 @@ export async function writeAssets(
           if (key.endsWith(".map")) return;
           const output = value as any;
           results.push({ file: key, value: formatBytes(output.bytes) });
-          if (key.includes("/critical/")) builtCritical = true;
 
           const entryPoint = output.entryPoint;
           if (entryPoint && output.inputs && typeof output.inputs === "object") {
@@ -171,9 +169,8 @@ export async function writeAssets(
       }
     }
 
-    if (builtCritical) {
-      await inlineCritical();
-    }
+    // Always inline critical. Need to duplicate the default.hbs file
+    await inlineCritical();
 
     const end = performance.now();
     return { results, time: end - start };

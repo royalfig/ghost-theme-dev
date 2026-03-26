@@ -49,6 +49,8 @@ import {
   DARK_MODE_CRITICAL_JS,
   DARK_MODE_HANDLER_JS,
   DARK_MODE_TOGGLE_HBS,
+  GITIGNORE_CONTENT,
+  CRITICAL_CSS_CONTENT,
 } from "./constants.js";
 
 export async function runNpmInstall() {
@@ -77,12 +79,13 @@ export async function makeSkeleton() {
     { filename: "error-404.hbs", content: ERROR_404_TEMPLATE_CONTENT },
     { filename: "default-template.hbs", content: DEFAULT_TEMPLATE_CONTENT },
     { filename: "assets/css/ghost.css", content: GHOST_CSS_CONTENT },
+    { filename: "assets/css/index.css", content: INDEX_CSS_CONTENT },
     {
       filename: "assets/js/index.ts",
-      content: "import { initDarkMode } from './darkMode';\n\ninitDarkMode();",
+      content: "console.log('Hello World');",
     },
     { filename: "assets/js/darkMode.ts", content: DARK_MODE_HANDLER_JS },
-    { filename: "assets/js/critical.ts", content: DARK_MODE_CRITICAL_JS },
+    { filename: "assets/js/critical/index.ts", content: DARK_MODE_CRITICAL_JS },
     { filename: "partials/header.hbs", content: HEADER_PARTIAL_CONTENT },
     { filename: "partials/footer.hbs", content: FOOTER_PARTIAL_CONTENT },
     { filename: "partials/card.hbs", content: CARD_PARTIAL_CONTENT },
@@ -95,6 +98,10 @@ export async function makeSkeleton() {
       content: DARK_MODE_TOGGLE_HBS,
     },
     {
+      filename: "assets/css/critical/index.css",
+      content: CRITICAL_CSS_CONTENT,
+    },
+    {
       filename: ".vscode/extensions.json",
       content: `{"recommendations": ["TryGhost.ghost"]}`,
     },
@@ -102,13 +109,9 @@ export async function makeSkeleton() {
     { filename: "package.json", content: PACKAGE_JSON_TEMPLATE(themeName) },
     { filename: ".eslintrc.json", content: ESLINT_CONFIG_TEMPLATE },
     { filename: ".stylelintrc.json", content: STYLELINT_CONFIG_TEMPLATE },
+    { filename: ".gitignore", content: GITIGNORE_CONTENT },
 
   ];
-
-  filesToCheck.push({
-    filename: "assets/css/index.css",
-    content: INDEX_CSS_CONTENT,
-  });
 
   try {
     await Promise.all(
@@ -127,7 +130,7 @@ export async function makeSkeleton() {
     if (!existsSync(join(folderPath, ".git"))) {
       console.log(chalk.blue("⬥"), " Initializing git repository...");
       try {
-        runCommand("git init -q");
+        runCommand("git init -q --initial-branch=main");
         console.log(chalk.green("✔"), " Git repository initialized!");
       } catch (e) {
         console.log(
@@ -212,7 +215,7 @@ export async function zipTheme() {
   const folderPath = process.cwd();
   const themeName = basename(folderPath);
   let version = "0.1.0";
-  
+
   try {
     const pkgContent = await readFilePromise(join(folderPath, "package.json"), "utf8");
     if (pkgContent) {
@@ -222,7 +225,7 @@ export async function zipTheme() {
   } catch (e) {
     console.log(chalk.yellow("┃"), " Could not read package.json, using default version 0.1.0");
   }
-  
+
   const zipName = `${themeName}-${version}.zip`;
   const distDir = join(folderPath, "dist");
 
