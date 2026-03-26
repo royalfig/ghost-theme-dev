@@ -12,7 +12,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '18'
+          node-version: '22'
       - run: npm ci
       - run: npm run build
       - name: Deploy theme
@@ -28,159 +28,93 @@ export const DEFAULT_TEMPLATE_CONTENT = `<!DOCTYPE html>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{{meta_title}}</title>
 
-    {{!-- Critical script for dark mode to prevent flash --}}
-    <script src="{{asset "built/js/critical.js"}}"></script>
+    {{!-- Add preconnect for jsdelivr --}}
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+    <link rel="dns-prefetch" href="https://cdn.jsdelivr.net">
 
-    <link rel="stylesheet" href="{{asset "built/css/index.css"}}">
+    {{!-- Critical script for dark mode to prevent flash. Replaced during build. --}}
+    <script src="{{asset "built/js/critical/index.js"}}"></script>
+    <link rel="stylesheet" href="{{asset "built/css/critical/index.css"}}">
+
+    <script src="{{asset "built/js/index.js"}}" defer></script>
+    <link rel="stylesheet" href="{{asset "built/css/index.css"}}" media="print" onload="this.media='all'">
     {{ghost_head}}
 </head>
 <body class="{{body_class}}">
 
-    <div class="flex flex-col min-h-screen">
+    <div class="">
         {{> "header"}}
 
-        <main class="grow">
+        <main class="">
             {{{body}}}
         </main>
 
         {{> "footer"}}
     </div>
 
-    <script src="{{asset "built/js/index.js"}}" defer></script>
     {{ghost_foot}}
-
 </body>
 </html>`;
 
 export const POST_TEMPLATE_CONTENT = `{{!< default}}
 
 {{#post}}
-<article class="pt-16 pb-24 px-4 md:px-8 max-w-7xl mx-auto w-full">
-    <header class="max-w-3xl mx-auto text-center mb-12">
-        {{#if primary_tag}}
-            {{#primary_tag}}
-                <a href="{{url}}" class="inline-block text-brand px-3 py-1 bg-brand/10 text-sm font-semibold tracking-wide uppercase mb-6 hover:bg-brand/20 transition-colors">
-                   # {{name}}
-                </a>
-            {{/primary_tag}}
-        {{/if}}
-
-        <h1 class="text-4xl md:text-5xl lg:text-6xl font-extrabold tracking-tight leading-tight mb-8">
-            {{title}}
-        </h1>
-
-        <div class="flex items-center mx-auto justify-center gap-4 font-medium">
-            {{#foreach authors}}
-                <div class="flex items-center gap-3 text-left">
-                    {{#if profile_image}}
-                        <img src="{{img_url profile_image size="xs"}}" alt="{{name}}" class="w-10 h-10 rounded-full border border-border object-cover" />
-                    {{/if}}
-                    <div class="flex flex-col text-xs">
-                        <a href="{{url}}" class="font-semibold">{{name}}</a>
-                        <time datetime="{{date ../published_at format="YYYY-MM-DD"}}"> {{date ../published_at format="DD MMMM YYYY"}}</time>
-                    </div>
-                </div>
-            {{/foreach}}
-        </div>
-    </header>
-
-    {{#if feature_image}}
-    <div class="max-w-5xl mx-auto mb-16 rounded-3xl overflow-hidden shadow-2xl">
-        <img
-            class="w-full h-auto object-cover max-h-[600px]"
-            srcset="{{img_url feature_image size="s"}} 300w,
-                    {{img_url feature_image size="m"}} 600w,
-                    {{img_url feature_image size="l"}} 1000w,
-                    {{img_url feature_image size="xl"}} 2000w"
-            sizes="(max-width: 1000px) 100vw, 1000px"
-            src="{{img_url feature_image size="l"}}"
-            alt="{{#if feature_image_alt}}{{feature_image_alt}}{{else}}{{title}}{{/if}}"
-        />
-    </div>
-    {{/if}}
-
-    <div class="prose prose-lg md:prose-xl dark:prose-invert mx-auto max-w-3xl">
-        {{content}}
-    </div>
-</article>
+<div class="{{post_class}}">
+    
+</div>
 {{/post}}`;
 
 export const INDEX_TEMPLATE_CONTENT = `{{!< default}}
 
-<section class="max-w-7xl mx-auto px-4 md:px-8 pt-16 pb-24">
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-        {{#foreach posts}}
-            {{> "card"}}
-        {{/foreach}}
-    </div>
-
-    <div class="mt-16 flex justify-center">
-        {{pagination}}
-    </div>
+<section class="">
+    {{#foreach posts}}
+        {{> "card"}}
+    {{/foreach}}
 </section>`;
 
 export const PAGE_TEMPLATE_CONTENT = `{{!< default}}
 
 {{#post}}
-<article class="pt-16 pb-24 px-4 md:px-8 max-w-7xl mx-auto w-full">
-    <header class="max-w-3xl mx-auto text-center mb-12">
-        <h1 class="text-4xl md:text-5xl lg:text-6xl font-extrabold tracking-tight leading-tight mb-8">
+<article class="{{post_class}}">
+    {{#match @page.show_title_and_feature_image}}
+    <header class="">
+        <h1>
             {{title}}
         </h1>
     </header>
+    {{/match}}
 
-    {{#if feature_image}}
-    <div class="max-w-5xl mx-auto mb-16 rounded-3xl overflow-hidden shadow-2xl">
-        <img
-            class="w-full h-auto object-cover max-h-[500px]"
-            src="{{img_url feature_image size="l"}}"
-            alt="{{title}}"
-        />
-    </div>
-    {{/if}}
-
-    <div class="prose prose-lg md:prose-xl dark:prose-invert mx-auto max-w-3xl">
-        {{content}}
-    </div>
+    {{!-- content here --}}
 </article>
 {{/post}}`;
 
 export const AUTHOR_TEMPLATE_CONTENT = `{{!< default}}
 
-<section class="max-w-7xl mx-auto px-4 md:px-8 pt-16 pb-24">
-    <div class="mb-16 border-b border-border pb-12 flex flex-col md:flex-row items-center gap-8">
+<section class="">
+    <div class="">
         {{#author}}
-            {{#if profile_image}}
-                <img class="w-24 h-24 rounded-full object-cover shadow-lg border-2 border-border" src="{{img_url profile_image size="s"}}" alt="{{name}}" />
-            {{/if}}
-
-            <div class="text-center md:text-left">
-                <h1 class="text-4xl font-extrabold tracking-tight mb-2">{{name}}</h1>
-                {{#if bio}}
-                    <p class="text-xl max-w-2xl leading-relaxed mb-4">{{bio}}</p>
-                {{/if}}
-            </div>
+            {{!-- author header --}}
         {{/author}}
     </div>
 
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+    <div class="">
         {{#foreach posts}}
             {{> "card"}}
         {{/foreach}}
     </div>
 
-    <div class="mt-16 flex justify-center">
+    <div class="">
         {{pagination}}
     </div>
 </section>`;
 
 export const TAG_TEMPLATE_CONTENT = `{{!< default}}
 
-<section class="max-w-7xl mx-auto px-4 md:px-8 pt-16 pb-24">
-    <header class="mb-16 border-b border-border pb-12">
+<section class="">
+    <header class="">
         {{#tag}}
-            <h1 class="text-4xl font-extrabold tracking-tight md:text-5xl lg:text-6xl mb-4">{{name}}</h1>
-            <p class="text-xl max-w-2xl leading-relaxed">
+            <h1 class="">{{name}}</h1>
+            <p class="">
                 {{#if description}}
                     {{description}}
                 {{else}}
@@ -190,89 +124,65 @@ export const TAG_TEMPLATE_CONTENT = `{{!< default}}
         {{/tag}}
     </header>
 
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+    <div class="">
         {{#foreach posts}}
             {{> "card"}}
         {{/foreach}}
     </div>
 
-    <div class="mt-16 flex justify-center">
+    <div class="">
         {{pagination}}
     </div>
 </section>`;
 
 export const ERROR_404_TEMPLATE_CONTENT = `{{!< default}}
 
-<section class="max-w-7xl mx-auto px-4 md:px-8 py-32 flex flex-col items-center justify-center text-center">
-    <h1 class="text-9xl font-extrabold text-brand/20 mb-4">404</h1>
-    <h2 class="text-4xl font-bold mb-6">Page not found</h2>
-    <p class="text-xl text-muted-foreground mb-12 max-w-md">Sorry, we couldn't find the page you're looking for. It might have been moved or deleted.</p>
-    <a href="{{@site.url}}" class="bg-brand text-white px-8 py-3 rounded-full font-bold hover:opacity-90 transition-all shadow-lg transform hover:-translate-y-1">
+<section class="">
+    <h1 class="">404</h1>
+    <h2 class="">Page not found</h2>
+    <p class="">Sorry, we couldn't find the page you're looking for. It might have been moved or deleted.</p>
+    <a href="{{@site.url}}" class="">
         Back to Home
     </a>
 </section>`;
 
-export const CARD_PARTIAL_CONTENT = `<article class="flex flex-col gap-4 group">
+export const CARD_PARTIAL_CONTENT = `<article class="">
     {{#if feature_image}}
-    <a href="{{url}}" class="aspect-video overflow-hidden rounded-lg">
-        <img
-            class="object-cover w-full h-full transform transition duration-500 group-hover:scale-105"
-            src="{{img_url feature_image size="m"}}"
-            alt="{{title}}"
-            loading="lazy"
-        />
+    <a href="{{url}}" class="">
+        
     </a>
     {{/if}}
 
-    <div class="flex flex-col gap-3">
-        <div class="flex items-center gap-3 text-sm font-medium">
+    <div class="">
+        <div class="">
             {{#primary_tag}}
-                <span class="text-brand">{{name}}</span>
+                <span class="">{{name}}</span>
             {{/primary_tag}}
             <span class="text-muted-foreground">
-                <time datetime="{{date format="YYYY-MM-DD"}}">{{date format="D MMM YYYY"}}</time>
+                <time datetime="{{date format='YYYY-MM-DD'}}">{{date format='D MMM YYYY'}}</time>
             </span>
         </div>
 
         <a href="{{url}}">
-            <h2 class="text-2xl font-bold leading-tight tracking-tight group-hover:text-brand transition-colors">
+            <h2 class="">
                 {{title}}
             </h2>
         </a>
-        <p class="text-muted-foreground line-clamp-2 leading-relaxed">
+        <p class="">
             {{excerpt words="30"}}
         </p>
     </div>
 </article>`;
 
-export const HEADER_PARTIAL_CONTENT = `<header class="py-6 border-b border-border px-4 md:px-8">
-    <nav class="flex max-w-7xl items-center justify-between mx-auto">
-        <div class="flex items-center">
-            <a class="text-2xl font-bold tracking-tight" href="{{@site.url}}">
-                {{#if @site.logo}}
-                    <img src="{{@site.logo}}" alt="{{@site.title}}" class="h-8 w-auto dark:invert" />
-                {{else}}
-                    {{@site.title}}
-                {{/if}}
-            </a>
-        </div>
-        <div class="hidden md:block">
-            {{navigation}}
-        </div>
-        <div class="flex items-center gap-4">
-            {{> "dark-mode-toggle"}}
-            <button class="gh-search-icon" data-ghost-search aria-label="Search">
-                <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
-            </button>
-        </div>
-    </nav>
+export const HEADER_PARTIAL_CONTENT = `<header class="">
+    {{navigation}}
 </header>`;
 
-export const FOOTER_PARTIAL_CONTENT = `<footer class="py-12 mt-20 border-t border-border">
-    <div class="max-w-7xl mx-auto px-4 md:px-8">
-        <div class="flex flex-col md:flex-row justify-between items-center gap-6 text-sm text-muted-foreground">
+export const FOOTER_PARTIAL_CONTENT = `<footer class="">
+    <div class="">
+        <div class="">
             <div>
-                &copy; {{date format="YYYY"}} {{@site.title}}. All rights reserved.
+                &copy; {{date format='YYYY'}} {{@site.title}}. All rights reserved.
             </div>
             <div class="flex items-center gap-6">
                 {{navigation type="secondary"}}
@@ -283,35 +193,11 @@ export const FOOTER_PARTIAL_CONTENT = `<footer class="py-12 mt-20 border-t borde
 
 export const NAVIGATION_PARTIAL_CONTENT = `<ul class="flex items-center gap-8 list-none p-0 m-0">
     {{#foreach navigation}}
-        <li class="{{link_class for=url class=(concat "nav-" slug)}}">
-            <a href="{{url absolute="true"}}" class="text-sm font-semibold hover:text-brand transition-colors">{{label}}</a>
+        <li class="{{link_class for=url class=(concat 'nav-' slug)}}">
+            <a href="{{url absolute='true'}}" class="text-sm font-semibold hover:text-brand transition-colors">{{label}}</a>
         </li>
     {{/foreach}}
 </ul>`;
-
-export const PAGINATION_PARTIAL_CONTENT = `<nav class="flex items-center justify-between border-t border-border px-4 py-8 w-full" role="pagination">
-    <div class="flex flex-1 w-0">
-        {{#if prev}}
-            <a href="{{page_url prev}}" class="inline-flex items-center pt-4 pr-1 text-sm font-medium hover:text-brand transition-all">
-                ← Previous
-            </a>
-        {{/if}}
-    </div>
-
-    <div class="hidden md:flex">
-        <span class="inline-flex items-center pt-4 text-sm font-medium">
-            Page {{page}} of {{pages}}
-        </span>
-    </div>
-
-    <div class="flex flex-1 justify-end w-0">
-        {{#if next}}
-            <a href="{{page_url next}}" class="inline-flex items-center pt-4 pl-1 text-sm font-medium hover:text-brand transition-all">
-                Next →
-            </a>
-        {{/if}}
-    </div>
-</nav>`;
 
 export const GHOST_CSS_CONTENT = `/* Ghost image styles */
 .kg-width-wide img { max-width: 80vw; width: 100%; margin: 2rem auto; }
@@ -334,18 +220,49 @@ export const PACKAGE_JSON_TEMPLATE = (name: string) => `{
   "description": "A new Ghost theme",
   "version": "0.1.0",
   "engines": {
-    "ghost": ">=5.0.0"
+    "ghost": ">=6.0.0"
+  },
+  "author": {
+    "name": "Example Name",
+    "email": "name@example.com",
+    "url": "https://example.com"
   },
   "license": "MIT",
+  "keywords": [
+    "ghost-theme",
+    "Ghost",
+    "Theme"
+  ],
   "config": {
     "posts_per_page": 25,
     "image_sizes": {
-      "xxs": { "width": 30 },
-      "xs": { "width": 100 },
-      "s": { "width": 300 },
-      "m": { "width": 600 },
-      "l": { "width": 1000 },
-      "xl": { "width": 2000 }
+      "50": {
+        "width": 50
+      },
+      "100": {
+        "width": 100
+      },
+      "400": {
+        "width": 400
+      },
+      "600": {
+        "width": 600
+      },
+      "800": {
+        "width": 800
+      },
+      "1000": {
+        "width": 1000
+      },
+      "1200": {
+        "width": 1200
+      },
+      "1600": {
+        "width": 1600
+      },
+      "2000": {
+        "width": 2000
+      }
     }
   },
   "scripts": {
@@ -358,94 +275,130 @@ export const PACKAGE_JSON_TEMPLATE = (name: string) => `{
   "devDependencies": {
     "@royalfig/gtb": "latest",
     "eslint": "^9.0.0",
-    "@typescript-eslint/eslint-plugin": "^7.0.0",
-    "@typescript-eslint/parser": "^7.0.0",
+    "@eslint/js": "^9.13.0",
+    "globals": "^15.11.0",
+    "@types/eslint__js": "^8.42.3",
+    "@types/node": "^22.13.4",
+    "typescript": "^5.6.3",
+    "typescript-eslint": "^8.11.0",
     "stylelint": "^16.0.0",
-    "stylelint-config-standard": "^36.0.0"
-  }
+    "stylelint-config-standard": "^36.0.0",
+    "stylelint-config-recess-order": "^5.1.1"
+  },
+  "type": "module"
 }
-`;
-
-export const ROUTES_YAML_CONTENT = `routes:
-
-collections:
-  /:
-    permalink: /{slug}/
-    template: index
-
-taxonomies:
-  tag: /tag/{slug}/
-  author: /author/{slug}/
 `;
 
 export const ESLINT_CONFIG_TEMPLATE = `{
-  "extends": [
+  extends: [
     "eslint:recommended",
-    "plugin:@typescript-eslint/recommended"
+    "plugin:@typescript-eslint/recommended",
+    "plugin:@typescript-eslint/stylistic",
   ],
-  "parser": "@typescript-eslint/parser",
-  "plugins": ["@typescript-eslint"],
-  "rules": {
-    "no-console": "warn"
-  }
-}
-`;
-
-export const STYLELINT_CONFIG_TEMPLATE = `{
-  "extends": [
-    "stylelint-config-standard"
-  ],
-  "rules": {
-    "import-notation": null,
-    "hue-degree-notation": "number"
-  }
-}
-`;
-
-export const POSTCSS_CONFIG_TEMPLATE = `export default {
-  plugins: {
-    autoprefixer: {},
+  rules: {
+    "no-console": 1,
   },
 }
 `;
 
-export const DARK_MODE_CRITICAL_JS = `(function() {
-    function getInitialMode() {
-        const savedMode = localStorage.getItem('gtb-dark-mode');
-        if (savedMode) return savedMode;
-        return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-    }
-    const mode = getInitialMode();
-    document.documentElement.classList.toggle('dark', mode === 'dark');
-    document.documentElement.dataset.mode = mode;
-})();`;
+export const STYLELINT_CONFIG_TEMPLATE = `{
+  "extends": ["stylelint-config-standard", "stylelint-config-recess-order"],
+  "rules": {
+    "import-notation": null,
+    "hue-degree-notation": "number"
+  }
+}`;
 
-export const DARK_MODE_HANDLER_JS = `export function initDarkMode() {
-    const toggles = document.querySelectorAll('.gtb-dark-mode-toggle');
-    toggles.forEach(toggle => {
-        toggle.addEventListener('click', () => {
-            const isDark = document.documentElement.classList.toggle('dark');
-            const newMode = isDark ? 'dark' : 'light';
-            document.documentElement.dataset.mode = newMode;
-            localStorage.setItem('gtb-dark-mode', newMode);
-        });
-    });
+export const DARK_MODE_CRITICAL_JS = `function toggleDarkModeShareButton(newMode: string) {
+  const shareButton = document.querySelector("share-button");
+
+  if (!shareButton) {
+    return;
+  }
+
+  const modeAsBool = newMode === "dark" ? "true" : "false";
+  shareButton?.setAttribute("dark-mode", modeAsBool);
+}
+
+function autoDarkMode() {
+  if (
+    window.matchMedia &&
+    window.matchMedia("(prefers-color-scheme: dark)").matches
+  ) {
+    document.documentElement.dataset.mode = "dark";
+  } else {
+    document.documentElement.dataset.mode = "light";
+  }
+}
+
+function setDarkMode() {
+  const prefers = localStorage.getItem("s-dark-mode");
+  if (prefers) {
+    document.documentElement.dataset.mode = prefers;
+  } else {
+    autoDarkMode();
+  }
+}
+
+window
+  .matchMedia("(prefers-color-scheme: dark)")
+  .addEventListener("change", (e) => {
+    const prefers = localStorage.getItem("s-dark-mode");
+
+    // Abort if user has already set a preference
+    if (prefers) {
+      return;
+    }
+
+    if (e.matches) {
+      toggleDarkModeShareButton("dark");
+    } else {
+      toggleDarkModeShareButton("light");
+    }
+    autoDarkMode();
+  });
+
+setDarkMode();`;
+
+export const DARK_MODE_HANDLER_JS = `export function darkModeHandler() {
+  const darkModeToggleButton = document.querySelectorAll(".s-dark-mode-toggle");
+
+  if (!darkModeToggleButton) {
+    return;
+  }
+
+  const mode = document.documentElement.dataset.mode!;
+  toggleDarkModeShareButton(mode);
+
+  Array.from(darkModeToggleButton).map((btn) =>
+    btn.addEventListener("click", () => {
+      const newMode = invertMode();
+      toggleDarkModeShareButton(newMode);
+      document.documentElement.dataset.mode = newMode;
+      localStorage.setItem("s-dark-mode", newMode);
+    })
+  );
+}
+
+export function invertMode() {
+  const currentMode = document.documentElement.dataset.mode!;
+  return currentMode === "dark" ? "light" : "dark";
 }`;
 
 export const DARK_MODE_TOGGLE_HBS = `<button class="gtb-dark-mode-toggle" aria-label="Toggle dark mode">
-    <span class="dark:hidden">🌙</span>
-    <span class="hidden dark:inline">☀️</span>
+    <span class="gtb-dark-mode">🌙</span>
+    <span class="gtb-light-mode">☀️</span>
 </button>`;
 
 export const ASSET_LOADERS = {
-  ".png": "file",
-  ".jpg": "file",
-  ".jpeg": "file",
-  ".svg": "file",
-  ".gif": "file",
-  ".woff": "file",
-  ".woff2": "file",
-  ".ttf": "file",
-  ".otf": "file",
-  ".css": "css",
+    ".png": "file",
+    ".jpg": "file",
+    ".jpeg": "file",
+    ".svg": "file",
+    ".gif": "file",
+    ".woff": "file",
+    ".woff2": "file",
+    ".ttf": "file",
+    ".otf": "file"
 } as const;
+

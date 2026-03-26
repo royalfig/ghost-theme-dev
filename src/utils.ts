@@ -1,9 +1,12 @@
 import { execSync, spawnSync } from "node:child_process";
-import { readdir, stat, readFile, mkdir } from "node:fs/promises";
-import { join, dirname } from "node:path";
+import { readdir, stat, readFile, mkdir, unlink, copyFile, access, constants } from "node:fs/promises";
+import { join, dirname, extname } from "node:path";
 import { pathToFileURL } from "node:url";
-import { existsSync } from "node:fs";
+import { existsSync, unlinkSync, readFileSync, lstatSync } from "node:fs";
 import chalk from "chalk";
+import sharp from "sharp";
+
+export { spawnSync };
 
 export interface GtbConfig {
     assetsDir?: string;
@@ -52,8 +55,8 @@ export async function loadConfig(): Promise<GtbConfig> {
 
 export function hasCommand(command: string): boolean {
     try {
-        execSync(`command -v ${command} > /dev/null 2>&1`);
-        return true;
+        const result = spawnSync("which", [command], { stdio: ['pipe', 'pipe', 'ignore'] });
+        return result.status === 0;
     } catch (e) {
         return false;
     }
@@ -64,6 +67,12 @@ let nodeVersionChecked = false;
 export function checkNodeVersion() {
     if (nodeVersionChecked) return;
     nodeVersionChecked = true;
+
+    // Only check Node version if Ghost CLI is not installed
+    // If Ghost is already installed, the warning is irrelevant to the current theme dev directory
+    if (hasCommand("ghost") || hasCommand("npx")) {
+        return;
+    }
 
     const version = process.versions.node;
     const major = parseInt(version.split(".")[0]);
@@ -93,9 +102,9 @@ export function checkNodeVersion() {
 export function runCommand(command: string, silent = false) {
   try {
     const output = execSync(command, { stdio: silent ? 'pipe' : 'inherit' });
-    return output ? output.toString() : "";
-  } catch (error) {
-    if (silent) return null;
+    return output?.toString() ?? "";
+  } catch (error: any) {
+    if (silent && error && typeof error === "object") return null;
     throw error;
   }
 }
@@ -139,8 +148,10 @@ export async function findFilesRecursively(directory: string): Promise<string[]>
             files.push(fullPath);
           }
         }
-    } catch (e) {
-        // Directory doesn't exist or is not readable
+    } catch (e: any) {
+        if (e.code !== 'ENOENT' && e.code !== 'EACCES') {
+            console.warn(`Warning: Could not read directory ${dir}: ${e.message}`);
+        }
     }
   }
 
@@ -209,11 +220,109 @@ export async function downloadFile(url: string, dest: string) {
     }
 
     try {
-        const result = spawnSync("curl", ["-s", "-L", url, "-o", dest]);
+        const result = spawnSync("curl", ["-s", "-L", url, "-o", dest], { stdio: ['pipe', 'pipe', 'inherit'] });
         if (result.status !== 0) {
             throw new Error(`Curl exited with status ${result.status}`);
         }
     } catch (e) {
-        throw new Error(`Failed to download ${url}: ${e}`);
+        if (existsSync(dest)) {
+            try {
+                await unlink(dest);
+            } catch { }
+        }
+        throw new Error(`Failed to download ${url}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+}
+
+export async function optimizeImages(folderPath: string, force = false) {
+    const imgDir = join(folderPath, "assets/img");
+    const builtImgDir = join(folderPath, "assets/built/img");
+
+    if (!existsSync(imgDir)) return;
+
+    let imageSizes = {
+        xxs: { width: 30 },
+        xs: { width: 100 },
+        s: { width: 300 },
+        m: { width: 600 },
+        l: { width: 1000 },
+        xl: { width: 2000 }
+    };
+
+    try {
+        const pkgContent = readFileSync(join(folderPath, "package.json"), "utf8");
+        const pkg = JSON.parse(pkgContent);
+        if (pkg.config?.image_sizes) {
+            imageSizes = pkg.config.image_sizes;
+        }
+    } catch { }
+
+    const files = await findFilesRecursively(imgDir);
+    const imageFiles = files.filter((f) =>
+        /\.(jpg|jpeg|png|webp|avif|svg)$/i.test(f),
+    );
+
+    for (const file of imageFiles) {
+        const relativePath = file.replace(imgDir, "");
+        let targetPath = join(builtImgDir, relativePath);
+
+        const targetDir = dirname(targetPath);
+
+        if (!existsSync(targetDir))
+            await mkdir(targetDir, { recursive: true });
+
+        if (file.toLowerCase().endsWith(".svg")) {
+            await copyFile(file, targetPath);
+        } else {
+            const ext = extname(file);
+            
+            for (const [sizeName, sizeConfig] of Object.entries(imageSizes)) {
+                const width = sizeConfig.width;
+                
+                const originalOutputPath = targetPath.slice(0, -ext.length || undefined) + `-${width}${ext}`;
+                const webpOutputPath = targetPath.slice(0, -ext.length || undefined) + `-${width}.webp`;
+                const avifOutputPath = targetPath.slice(0, -ext.length || undefined) + `-${width}.avif`;
+                
+                if (!force && await checkFileUptodate(file, [originalOutputPath, webpOutputPath, avifOutputPath])) {
+                    continue;
+                }
+                
+                await sharp(file)
+                    .rotate()
+                    .resize({ width, withoutEnlargement: true })
+                    [ext.slice(1) as "webp" | "avif" | "jpeg" | "png"]()
+                    .toFile(originalOutputPath);
+                
+                if (ext !== ".webp") {
+                    await sharp(file)
+                        .rotate()
+                        .resize({ width, withoutEnlargement: true })
+                        .webp({ quality: 80 })
+                        .toFile(webpOutputPath);
+                }
+                
+                if (ext !== ".avif") {
+                    await sharp(file)
+                        .rotate()
+                        .resize({ width, withoutEnlargement: true })
+                        .avif({ quality: 80 })
+                        .toFile(avifOutputPath);
+                }
+            }
+        }
+    }
+}
+
+async function checkFileUptodate(source: string, targets: string[]): Promise<boolean> {
+    try {
+        const sourceMtime = lstatSync(source).mtimeMs;
+        for (const target of targets) {
+            if (!existsSync(target)) return false;
+            const targetMtime = lstatSync(target).mtimeMs;
+            if (targetMtime < sourceMtime) return false;
+        }
+        return true;
+    } catch {
+        return false;
     }
 }

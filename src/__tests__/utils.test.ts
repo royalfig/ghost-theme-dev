@@ -28,7 +28,7 @@ import {
   loadEnv,
   findFilesRecursively,
 } from "../utils.js";
-import { execSync } from "node:child_process";
+import { execSync, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { readFile, readdir, stat } from "node:fs/promises";
 
@@ -200,14 +200,12 @@ describe("hasCommand", () => {
   });
 
   it("should return true if command exists", () => {
-    vi.mocked(execSync).mockReturnValue(Buffer.from("/usr/bin/node"));
+    vi.mocked(spawnSync).mockReturnValue({ status: 0 } as any);
     expect(hasCommand("node")).toBe(true);
   });
 
   it("should return false if command does not exist", () => {
-    vi.mocked(execSync).mockImplementation(() => {
-      throw new Error("Command not found");
-    });
+    vi.mocked(spawnSync).mockReturnValue({ status: 1 } as any);
     expect(hasCommand("nonexistent-command")).toBe(false);
   });
 });

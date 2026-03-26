@@ -30,6 +30,7 @@ vi.mock("autoprefixer", () => ({
 vi.mock("node:fs/promises", () => ({
   readFile: vi.fn(),
   writeFile: vi.fn(),
+  copyFile: vi.fn(),
 }));
 
 // Mock utils
@@ -183,7 +184,7 @@ describe("writeAssets", () => {
 
     mockEsbuild.build.mockRejectedValue(new Error("Build failed"));
 
-    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => { });
 
     const result = await writeAssets(["assets/js/index.ts"], 3000, true);
 
@@ -196,7 +197,7 @@ describe("writeAssets", () => {
 
     mockEsbuild.build.mockRejectedValue(new Error("Build failed"));
 
-    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => { });
 
     await expect(
       writeAssets(["assets/js/index.ts"], 3000, false),
@@ -320,7 +321,7 @@ describe("inlineCritical", () => {
 
     mockWriteFile.mockResolvedValue();
 
-    vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(console, "log").mockImplementation(() => { });
 
     await inlineCritical();
 
@@ -341,7 +342,7 @@ describe("inlineCritical", () => {
 
     mockWriteFile.mockResolvedValue();
 
-    vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(console, "log").mockImplementation(() => { });
 
     await inlineCritical();
 
@@ -358,7 +359,7 @@ describe("inlineCritical", () => {
     mockReadFile.mockResolvedValue("no tags here" as any);
     mockWriteFile.mockResolvedValue();
 
-    vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(console, "log").mockImplementation(() => { });
 
     await inlineCritical();
 
@@ -379,7 +380,7 @@ describe("inlineCritical", () => {
 
     mockWriteFile.mockResolvedValue();
 
-    vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(console, "log").mockImplementation(() => { });
 
     await inlineCritical();
 
@@ -397,8 +398,8 @@ describe("inlineCritical", () => {
     mockReadFile.mockResolvedValue("test content" as any);
     mockWriteFile.mockRejectedValue(new Error("Write failed"));
 
-    vi.spyOn(console, "log").mockImplementation(() => {});
-    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "log").mockImplementation(() => { });
+    vi.spyOn(console, "error").mockImplementation(() => { });
 
     await expect(inlineCritical()).resolves.not.toThrow();
   });

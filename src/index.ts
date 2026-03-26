@@ -2,15 +2,17 @@
 
 import chalk from "chalk";
 import chokidar from "chokidar";
+import confirm from "@inquirer/confirm";
 import { argv } from "node:process";
 import { getPortPromise } from "portfinder";
 import open from "open";
 
-import { findEntryPoints, loadConfig } from "./utils.js";
+import { findEntryPoints, loadConfig, optimizeImages } from "./utils.js";
 import { writeAssets } from "./builder.js";
 import { initWs, printCompilationDetails } from "./server.js";
 import {
   makeSkeleton,
+  runNpmInstall,
   parseGhostCliOutput,
   checkTheme,
   zipTheme,
@@ -62,15 +64,29 @@ async function init() {
   if (command === "init" || argv.includes("--init")) {
     await makeSkeleton();
     const linked = await symLinkTheme();
+    console.log(
+      chalk.green("⬥"),
+      "  Theme skeleton created successfully.",
+    );
+    
+    const installDeps = await confirm({
+      message: "Would you like to install dependencies now?",
+      default: true,
+    });
+    
+    if (installDeps) {
+      await runNpmInstall();
+    }
+    
     if (linked) {
       console.log(
         chalk.green("⬥"),
-        "  Theme skeleton created and linked successfully.",
+        "  Theme linked successfully.",
       );
     } else {
       console.log(
-        chalk.green("⬥"),
-        "  Theme skeleton created successfully (linking skipped or failed).",
+        chalk.yellow("⬥"),
+        "  Skipping theme linking.",
       );
     }
     return;
@@ -175,6 +191,12 @@ async function init() {
     }
   } else {
     printCompilationDetails(res);
+    console.log(chalk.blue("⬥"), " Optimizing images...");
+    try {
+      await optimizeImages(process.cwd());
+    } catch (e) {
+      console.log(chalk.yellow("┃"), " Image optimization skipped or failed.");
+    }
     console.log(chalk.green("⬥"), "  Files built successfully. Exiting...");
     process.exit(0);
   }

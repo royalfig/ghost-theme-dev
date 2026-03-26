@@ -14,12 +14,11 @@ import {
   unlink as unlinkPromise,
   copyFile as copyFilePromise,
 } from "node:fs/promises";
-import { join, dirname, basename, resolve } from "node:path";
+import { join, dirname, basename, resolve, extname } from "node:path";
 import gscan from "gscan";
 import archiver from "archiver";
 import chalk from "chalk";
 import GhostAdminApi from "@tryghost/admin-api";
-import sharp from "sharp";
 
 import {
   runCommand,
@@ -27,6 +26,7 @@ import {
   checkNodeVersion,
   downloadFile,
   findFilesRecursively,
+  optimizeImages,
 } from "./utils.js";
 import {
   GH_ACTION_CONTENT,
@@ -41,27 +41,32 @@ import {
   FOOTER_PARTIAL_CONTENT,
   CARD_PARTIAL_CONTENT,
   NAVIGATION_PARTIAL_CONTENT,
-  PAGINATION_PARTIAL_CONTENT,
   GHOST_CSS_CONTENT,
   INDEX_CSS_CONTENT,
   PACKAGE_JSON_TEMPLATE,
-  ROUTES_YAML_CONTENT,
   ESLINT_CONFIG_TEMPLATE,
   STYLELINT_CONFIG_TEMPLATE,
-  POSTCSS_CONFIG_TEMPLATE,
   DARK_MODE_CRITICAL_JS,
   DARK_MODE_HANDLER_JS,
   DARK_MODE_TOGGLE_HBS,
 } from "./constants.js";
 
+export async function runNpmInstall() {
+  console.log(chalk.blue("⬥"), " Installing dependencies...");
+  try {
+    runCommand("npm install");
+    console.log(chalk.green("✔"), " Dependencies installed successfully!");
+  } catch (e) {
+    console.error(
+      chalk.red("✘  Failed to install dependencies. Please run 'npm install' manually."),
+    );
+    process.exit(1);
+  }
+}
+
 export async function makeSkeleton() {
   const folderPath = process.cwd();
   const themeName = basename(folderPath);
-
-  const kit = await select({
-    message: "Choose a starter kit:",
-    choices: [{ name: "Standard (TypeScript + PostCSS)", value: "standard" }],
-  });
 
   const filesToCheck = [
     { filename: "index.hbs", content: INDEX_TEMPLATE_CONTENT },
@@ -70,7 +75,7 @@ export async function makeSkeleton() {
     { filename: "author.hbs", content: AUTHOR_TEMPLATE_CONTENT },
     { filename: "tag.hbs", content: TAG_TEMPLATE_CONTENT },
     { filename: "error-404.hbs", content: ERROR_404_TEMPLATE_CONTENT },
-    { filename: "default.hbs", content: DEFAULT_TEMPLATE_CONTENT },
+    { filename: "default-template.hbs", content: DEFAULT_TEMPLATE_CONTENT },
     { filename: "assets/css/ghost.css", content: GHOST_CSS_CONTENT },
     {
       filename: "assets/js/index.ts",
@@ -86,10 +91,6 @@ export async function makeSkeleton() {
       content: NAVIGATION_PARTIAL_CONTENT,
     },
     {
-      filename: "partials/pagination.hbs",
-      content: PAGINATION_PARTIAL_CONTENT,
-    },
-    {
       filename: "partials/dark-mode-toggle.hbs",
       content: DARK_MODE_TOGGLE_HBS,
     },
@@ -99,10 +100,9 @@ export async function makeSkeleton() {
     },
     { filename: ".github/deploy-theme.yaml", content: GH_ACTION_CONTENT },
     { filename: "package.json", content: PACKAGE_JSON_TEMPLATE(themeName) },
-    { filename: "routes.yaml", content: ROUTES_YAML_CONTENT },
     { filename: ".eslintrc.json", content: ESLINT_CONFIG_TEMPLATE },
     { filename: ".stylelintrc.json", content: STYLELINT_CONFIG_TEMPLATE },
-    { filename: "postcss.config.js", content: POSTCSS_CONFIG_TEMPLATE },
+
   ];
 
   filesToCheck.push({
@@ -211,10 +211,18 @@ export async function lintTheme() {
 export async function zipTheme() {
   const folderPath = process.cwd();
   const themeName = basename(folderPath);
-  const pkg = JSON.parse(
-    (await readFilePromise(join(folderPath, "package.json"), "utf8")) || "{}",
-  );
-  const version = pkg.version || "0.1.0";
+  let version = "0.1.0";
+  
+  try {
+    const pkgContent = await readFilePromise(join(folderPath, "package.json"), "utf8");
+    if (pkgContent) {
+      const pkg = JSON.parse(pkgContent);
+      version = pkg.version || "0.1.0";
+    }
+  } catch (e) {
+    console.log(chalk.yellow("┃"), " Could not read package.json, using default version 0.1.0");
+  }
+  
   const zipName = `${themeName}-${version}.zip`;
   const distDir = join(folderPath, "dist");
 
@@ -222,36 +230,7 @@ export async function zipTheme() {
 
   console.log(chalk.blue("⬥"), " Optimizing images...");
   try {
-    const imgDir = join(folderPath, "assets/img");
-    const builtImgDir = join(folderPath, "assets/built/img");
-
-    if (existsSync(imgDir)) {
-      const files = await findFilesRecursively(imgDir);
-      const imageFiles = files.filter((f) =>
-        /\.(jpg|jpeg|png|webp|avif|svg)$/i.test(f),
-      );
-
-      for (const file of imageFiles) {
-        const relativePath = file.replace(imgDir, "");
-        const targetPath = join(builtImgDir, relativePath);
-        const targetDir = dirname(targetPath);
-
-        if (!existsSync(targetDir))
-          await mkdirPromise(targetDir, { recursive: true });
-
-        if (file.toLowerCase().endsWith(".svg")) {
-          await copyFilePromise(file, targetPath);
-        } else {
-          await sharp(file)
-            .rotate() // Auto-rotate based on EXIF
-            .resize({ width: 2000, withoutEnlargement: true }) // Reasonable max width
-            .jpeg({ quality: 80, progressive: true, force: false })
-            .png({ quality: 80, palette: true, force: false })
-            .webp({ quality: 80, force: false })
-            .toFile(targetPath);
-        }
-      }
-    }
+    await optimizeImages(folderPath);
   } catch (e) {
     console.log(chalk.yellow("┃"), " Image optimization skipped or failed.");
   }
@@ -400,8 +379,8 @@ export async function symLinkTheme(): Promise<boolean> {
     const cleanResult = result ? result.replace(ansiRegex, "") : "";
     let rows = cleanResult
       ? cleanResult
-          .split("\n")
-          .filter((row) => row.includes("│") && !row.includes("Name"))
+        .split("\n")
+        .filter((row) => row.includes("│") && !row.includes("Name"))
       : [];
 
     instances = rows
@@ -484,12 +463,12 @@ export async function symLinkTheme(): Promise<boolean> {
       instances.length === 1
         ? instances[0]
         : await select({
-            message: "Link to which Ghost instance?",
-            choices: instances.map((i) => ({
-              name: `${i.name} (${i.location})`,
-              value: i,
-            })),
-          });
+          message: "Link to which Ghost instance?",
+          choices: instances.map((i) => ({
+            name: `${i.name} (${i.location})`,
+            value: i,
+          })),
+        });
 
     const resolvedLocation = targetInstance.location.replace(/^~/, homedir());
     const themesPath = join(resolvedLocation, "content", "themes", themeName);
@@ -583,8 +562,8 @@ export async function cloneContent() {
   const result = runCommand(`${ghostCmd} ls`, true);
   const rows = result
     ? result
-        .split("\n")
-        .filter((row) => row.includes("│") && !row.includes("Name"))
+      .split("\n")
+      .filter((row) => row.includes("│") && !row.includes("Name"))
     : [];
 
   const instances = rows.map((row) => {
@@ -603,12 +582,12 @@ export async function cloneContent() {
     instances.length === 1
       ? instances[0]
       : await select({
-          message: "Clone content into which local Ghost instance?",
-          choices: instances.map((i) => ({
-            name: `${i.name} (${i.location})`,
-            value: i,
-          })),
-        });
+        message: "Clone content into which local Ghost instance?",
+        choices: instances.map((i) => ({
+          name: `${i.name} (${i.location})`,
+          value: i,
+        })),
+      });
 
   const localContentPath = join(
     targetInstance.location.replace(/^~/, process.env.HOME || ""),

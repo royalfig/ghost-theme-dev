@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import WebSocket, { WebSocketServer } from "ws";
 import { FSWatcher } from "chokidar";
 import { CompilationDetails, tree, writeAssets } from "./builder.js";
-import { GtbConfig, logToFile } from "./utils.js";
+import { GtbConfig, logToFile, spawnSync } from "./utils.js";
 
 export interface SiteData {
   url: string;
@@ -12,6 +12,7 @@ export interface SiteData {
 }
 
 let siteData: SiteData | null = null;
+let timeoutId: NodeJS.Timeout | null = null;
 
 export function printCompilationDetails(
   content: CompilationDetails,
@@ -88,7 +89,7 @@ export async function initWs(
   watcher: FSWatcher,
   config?: GtbConfig,
 ) {
-  const int = setTimeout(() => {
+  timeoutId = setTimeout(() => {
     console.clear();
     printHeader(url, true);
   }, 5000);
@@ -115,15 +116,10 @@ export async function initWs(
       });
     }
 
-    // Filter out build artifacts that should not trigger rebuilds
     const isBuildArtifact =
       path.endsWith(".d.ts") ||
       path.endsWith(".map") ||
-      path.includes("/assets/built/") ||
-      path.includes("\\assets\\built\\") ||
-      path.startsWith("assets/built/") ||
-      path.startsWith("assets\\built\\");
-
+      path.includes("/assets/built/");
     if (isBuildArtifact) {
       return;
     }
@@ -132,30 +128,38 @@ export async function initWs(
       let rootFile = path;
 
       if (!/index\.(css|js|ts)$/.test(path)) {
-        rootFile = tree.get(path) || path;
-      }
-
-      if (!rootFile) {
-        logToFile(`No root file found for ${path}`);
-        return;
+        const entryPoint = tree.get(path);
+        if (!entryPoint) {
+          logToFile(`No root file found for ${path}`);
+          return;
+        }
+        rootFile = entryPoint;
       }
 
       logToFile(`Rebuilding ${rootFile} due to change in ${path}`);
-      const res = await writeAssets([rootFile], port, true, config);
+      try {
+        const res = await writeAssets([rootFile], port, true, config);
 
-      printHeader(url, false, false);
-      printCompilationDetails(res, path);
+        printHeader(url, false, false);
+        printCompilationDetails(res, path);
 
-      wss.clients.forEach((client) => {
-        if (client.readyState === WebSocket.OPEN) {
-          client.send(`File changed: ${path}`);
-        }
-      });
+        wss.clients.forEach((client) => {
+          if (client.readyState === WebSocket.OPEN) {
+            client.send(`File changed: ${path}`);
+          }
+        });
+      } catch (e) {
+        logToFile(`Build error for ${rootFile}: ${e instanceof Error ? e.message : String(e)}`);
+        printHeader(url, true);
+      }
     }
   });
 
   wss.on("connection", (ws) => {
-    clearTimeout(int);
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+      timeoutId = null;
+    }
 
     if (firstConnection) {
       printHeader(url, false, true);
@@ -165,10 +169,17 @@ export async function initWs(
     ws.on("message", (message: string) => {
       try {
         const data = JSON.parse(message);
-        siteData = data;
+        siteData = data as SiteData;
       } catch (e) {
         // Ignore malformed messages
       }
     });
+  });
+
+  watcher.on("close", () => {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+      timeoutId = null;
+    }
   });
 }

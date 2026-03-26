@@ -1,6 +1,6 @@
 import * as esbuild from "esbuild";
 import chalk from "chalk";
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, writeFile, copyFile } from "node:fs/promises";
 import stylePlugin from "esbuild-style-plugin";
 import postcssImport from "postcss-import";
 
@@ -27,7 +27,7 @@ export async function inlineCritical() {
     const JS_TAG =
       '<script src="{{asset "built/js/critical/index.js"}}"></script>';
 
-    let defaultTemplate = await readFile("default.hbs", "utf8");
+    let defaultTemplate = await readFile("default-template.hbs", "utf8");
 
     let cssContent = "";
     let jsContent = "";
@@ -60,6 +60,7 @@ export async function inlineCritical() {
         `<script>${jsContent}</script>`,
       );
     }
+
 
     await writeFile("default.hbs", defaultTemplate);
     console.log(chalk.blue("⬥"), " Critical assets inlined into default.hbs");
@@ -156,12 +157,13 @@ export async function writeAssets(
       if (res.metafile) {
         Object.entries(res.metafile.outputs).forEach(([key, value]) => {
           if (key.endsWith(".map")) return;
-          results.push({ file: key, value: formatBytes(value.bytes) });
+          const output = value as any;
+          results.push({ file: key, value: formatBytes(output.bytes) });
           if (key.includes("/critical/")) builtCritical = true;
 
-          const entryPoint = value.entryPoint;
-          if (entryPoint) {
-            Object.keys(value.inputs).forEach((input) => {
+          const entryPoint = output.entryPoint;
+          if (entryPoint && output.inputs && typeof output.inputs === "object") {
+            Object.keys(output.inputs).forEach((input) => {
               tree.set(input, entryPoint);
             });
           }
