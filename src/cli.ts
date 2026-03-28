@@ -51,6 +51,7 @@ import {
   DARK_MODE_TOGGLE_HBS,
   GITIGNORE_CONTENT,
   CRITICAL_CSS_CONTENT,
+  CSS_RESET,
 } from "./constants.js";
 
 export async function runNpmInstall() {
@@ -60,7 +61,9 @@ export async function runNpmInstall() {
     console.log(chalk.green("✔"), " Dependencies installed successfully!");
   } catch (e) {
     console.error(
-      chalk.red("✘  Failed to install dependencies. Please run 'npm install' manually."),
+      chalk.red(
+        "✘  Failed to install dependencies. Please run 'npm install' manually.",
+      ),
     );
     process.exit(1);
   }
@@ -102,6 +105,10 @@ export async function makeSkeleton() {
       content: CRITICAL_CSS_CONTENT,
     },
     {
+      filename: "assets/css/critical/reset.css",
+      content: CSS_RESET,
+    },
+    {
       filename: ".vscode/extensions.json",
       content: `{"recommendations": ["TryGhost.ghost"]}`,
     },
@@ -110,7 +117,6 @@ export async function makeSkeleton() {
     { filename: ".eslintrc.json", content: ESLINT_CONFIG_TEMPLATE },
     { filename: ".stylelintrc.json", content: STYLELINT_CONFIG_TEMPLATE },
     { filename: ".gitignore", content: GITIGNORE_CONTENT },
-
   ];
 
   try {
@@ -217,13 +223,19 @@ export async function zipTheme() {
   let version = "0.1.0";
 
   try {
-    const pkgContent = await readFilePromise(join(folderPath, "package.json"), "utf8");
+    const pkgContent = await readFilePromise(
+      join(folderPath, "package.json"),
+      "utf8",
+    );
     if (pkgContent) {
       const pkg = JSON.parse(pkgContent);
       version = pkg.version || "0.1.0";
     }
   } catch (e) {
-    console.log(chalk.yellow("┃"), " Could not read package.json, using default version 0.1.0");
+    console.log(
+      chalk.yellow("┃"),
+      " Could not read package.json, using default version 0.1.0",
+    );
   }
 
   const zipName = `${themeName}-${version}.zip`;
@@ -382,8 +394,8 @@ export async function symLinkTheme(): Promise<boolean> {
     const cleanResult = result ? result.replace(ansiRegex, "") : "";
     let rows = cleanResult
       ? cleanResult
-        .split("\n")
-        .filter((row) => row.includes("│") && !row.includes("Name"))
+          .split("\n")
+          .filter((row) => row.includes("│") && !row.includes("Name"))
       : [];
 
     instances = rows
@@ -466,12 +478,12 @@ export async function symLinkTheme(): Promise<boolean> {
       instances.length === 1
         ? instances[0]
         : await select({
-          message: "Link to which Ghost instance?",
-          choices: instances.map((i) => ({
-            name: `${i.name} (${i.location})`,
-            value: i,
-          })),
-        });
+            message: "Link to which Ghost instance?",
+            choices: instances.map((i) => ({
+              name: `${i.name} (${i.location})`,
+              value: i,
+            })),
+          });
 
     const resolvedLocation = targetInstance.location.replace(/^~/, homedir());
     const themesPath = join(resolvedLocation, "content", "themes", themeName);
@@ -565,8 +577,8 @@ export async function cloneContent() {
   const result = runCommand(`${ghostCmd} ls`, true);
   const rows = result
     ? result
-      .split("\n")
-      .filter((row) => row.includes("│") && !row.includes("Name"))
+        .split("\n")
+        .filter((row) => row.includes("│") && !row.includes("Name"))
     : [];
 
   const instances = rows.map((row) => {
@@ -585,12 +597,12 @@ export async function cloneContent() {
     instances.length === 1
       ? instances[0]
       : await select({
-        message: "Clone content into which local Ghost instance?",
-        choices: instances.map((i) => ({
-          name: `${i.name} (${i.location})`,
-          value: i,
-        })),
-      });
+          message: "Clone content into which local Ghost instance?",
+          choices: instances.map((i) => ({
+            name: `${i.name} (${i.location})`,
+            value: i,
+          })),
+        });
 
   const localContentPath = join(
     targetInstance.location.replace(/^~/, process.env.HOME || ""),

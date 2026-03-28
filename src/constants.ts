@@ -208,81 +208,59 @@ export const INDEX_CSS_CONTENT = `@import "ghost.css";
 
 `;
 
-export const CRITICAL_CSS_CONTENT = `
-/* Box sizing rules */
-*,
-*::before,
-*::after {
+export const CRITICAL_CSS_CONTENT = `@import "reset.css";
+`;
+
+export const CSS_RESET = `
+/* https://www.joshwcomeau.com/css/custom-css-reset/ */
+/* 1. Use a more-intuitive box-sizing model */
+*, *::before, *::after {
   box-sizing: border-box;
 }
 
-/* Prevent font size inflation */
-html {
-  -moz-text-size-adjust: none;
-  -webkit-text-size-adjust: none;
-  text-size-adjust: none;
+/* 2. Remove default margin */
+*:not(dialog) {
+  margin: 0;
 }
 
-/* Remove default margin in favour of better control in authored CSS */
-body, h1, h2, h3, h4, p,
-figure, blockquote, dl, dd {
-  margin-block-end: 0;
+/* 3. Enable keyword animations */
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    interpolate-size: allow-keywords;
+  }
 }
 
-/* Remove list styles on ul, ol elements with a list role, which suggests default styling will be removed */
-ul[role='list'],
-ol[role='list'] {
-  list-style: none;
-}
-
-/* Set core body defaults */
 body {
-  min-height: 100vh;
+  /* 4. Increase line-height */
   line-height: 1.5;
+  /* 5. Improve text rendering */
+  -webkit-font-smoothing: antialiased;
 }
 
-/* Set shorter line heights on headings and interactive elements */
-h1, h2, h3, h4,
-button, input, label {
-  line-height: 1.1;
+/* 6. Improve media defaults */
+img, picture, video, canvas, svg {
+  display: block;
+  max-width: 100%;
 }
 
-/* Balance text wrapping on headings */
-h1, h2,
-h3, h4 {
+/* 7. Inherit fonts for form controls */
+input, button, textarea, select {
+  font: inherit;
+}
+
+/* 8. Avoid text overflows */
+p, h1, h2, h3, h4, h5, h6 {
+  overflow-wrap: break-word;
+}
+
+/* 9. Improve line wrapping */
+p {
+  text-wrap: pretty;
+}
+h1, h2, h3, h4, h5, h6 {
   text-wrap: balance;
 }
-
-/* A elements that don't have a class get default styles */
-a:not([class]) {
-  text-decoration-skip-ink: auto;
-  color: currentColor;
-}
-
-/* Make images easier to work with */
-img,
-picture {
-  max-width: 100%;
-  display: block;
-}
-
-/* Inherit fonts for inputs and buttons */
-input, button,
-textarea, select {
-  font-family: inherit;
-  font-size: inherit;
-}
-
-/* Make sure textareas without a rows attribute are not tiny */
-textarea:not([rows]) {
-  min-height: 10em;
-}
-
-/* Anything that has been anchored to should have extra scroll margin */
-:target {
-  scroll-margin-block: 5ex;
-}
-`
+`;
 
 export const PACKAGE_JSON_TEMPLATE = (name: string) => `{
   "name": "${name}",
@@ -470,21 +448,20 @@ export const DARK_MODE_TOGGLE_HBS = `<button class="gtb-dark-mode-toggle" aria-l
     <span class="gtb-light-mode">Light</span>
 </button>`;
 
-export const ASSET_LOADERS = {
-    ".png": "file",
-    ".jpg": "file",
-    ".jpeg": "file",
-    ".svg": "file",
-    ".gif": "file",
-    ".woff": "file",
-    ".woff2": "file",
-    ".ttf": "file",
-    ".otf": "file"
-} as const;
+export const EXTERNAL_ASSETS = [
+  "*.png",
+  "*.jpg",
+  "*.jpeg",
+  "*.svg",
+  "*.gif",
+  "*.woff",
+  "*.woff2",
+  "*.ttf",
+  "*.otf",
+] as const;
 
 export const GITIGNORE_CONTENT = `node_modules
 assets/built
 .DS_Store
 
 .env`;
-

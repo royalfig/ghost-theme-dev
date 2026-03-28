@@ -95,31 +95,9 @@ vi.mock("../utils.js", () => ({
   findFilesRecursively: vi.fn().mockResolvedValue([]),
 }));
 
-vi.mock("../constants.js", () => ({
+vi.mock("../constants.js", async (importOriginal) => ({
+  ...(await importOriginal()),
   ASSET_LOADERS: { ".ts": "ts", ".js": "js", ".css": "css" },
-  DEFAULT_TEMPLATE_CONTENT: "<!DOCTYPE html>",
-  POST_TEMPLATE_CONTENT: "<article>{{title}}</article>",
-  INDEX_TEMPLATE_CONTENT: "<section>{{posts}}</section>",
-  PAGE_TEMPLATE_CONTENT: "<article>{{title}}</article>",
-  AUTHOR_TEMPLATE_CONTENT: "<article>{{name}}</article>",
-  TAG_TEMPLATE_CONTENT: "<article>{{name}}</article>",
-  ERROR_404_TEMPLATE_CONTENT: "<article>404</article>",
-  CARD_PARTIAL_CONTENT: "<article>{{title}}</article>",
-  HEADER_PARTIAL_CONTENT: "<header>{{site.title}}</header>",
-  FOOTER_PARTIAL_CONTENT: "<footer>{{site.title}}</footer>",
-  NAVIGATION_PARTIAL_CONTENT: "<nav>{{links}}</nav>",
-  PAGINATION_PARTIAL_CONTENT: "<nav>{{pagination}}</nav>",
-  GHOST_CSS_CONTENT: "/* Ghost image styles */",
-  INDEX_CSS_CONTENT: ":root { --color: #000; }",
-  PACKAGE_JSON_TEMPLATE: vi.fn(() => '{"name":"test","version":"1.0.0"}'),
-  ROUTES_YAML_CONTENT: "routes: /",
-  ESLINT_CONFIG_TEMPLATE: "{}",
-  STYLELINT_CONFIG_TEMPLATE: "{}",
-  POSTCSS_CONFIG_TEMPLATE: "{}",
-  DARK_MODE_CRITICAL_JS: "(function() {})",
-  DARK_MODE_HANDLER_JS: "export function initDarkMode() {}",
-  DARK_MODE_TOGGLE_HBS: "<button>Toggle</button>",
-  GH_ACTION_CONTENT: "name: test",
 }));
 
 import { writeFile, access, mkdir } from "node:fs/promises";

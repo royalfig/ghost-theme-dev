@@ -275,6 +275,7 @@ export async function optimizeImages(folderPath: string, force = false) {
             await copyFile(file, targetPath);
         } else {
             const ext = extname(file);
+            const format = ext.slice(1) === "jpg" ? "jpeg" : ext.slice(1) as "webp" | "avif" | "jpeg" | "png";
             
             for (const [sizeName, sizeConfig] of Object.entries(imageSizes)) {
                 const width = sizeConfig.width;
@@ -286,11 +287,11 @@ export async function optimizeImages(folderPath: string, force = false) {
                 if (!force && await checkFileUptodate(file, [originalOutputPath, webpOutputPath, avifOutputPath])) {
                     continue;
                 }
-                
+
                 await sharp(file)
                     .rotate()
                     .resize({ width, withoutEnlargement: true })
-                    [ext.slice(1) as "webp" | "avif" | "jpeg" | "png"]()
+                    [format]()
                     .toFile(originalOutputPath);
                 
                 if (ext !== ".webp") {

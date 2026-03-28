@@ -148,6 +148,13 @@ async function init() {
   );
 
   if (isWatch) {
+    console.log(chalk.blue("⬥"), " Optimizing images...");
+    try {
+      await optimizeImages(process.cwd());
+    } catch (e) {
+      console.log(chalk.yellow("┃"), " Image optimization skipped or failed.");
+    }
+    
     const url = await parseGhostCliOutput();
     // Use a function-based ignore to only watch necessary theme files
     const ignored = (path: string, stats?: any) => {
@@ -167,9 +174,9 @@ async function init() {
         return true;
       }
 
-      // If it's a file, only allow theme-related ones (.hbs, .css, .js, .ts)
+      // If it's a file, only allow theme-related ones (.hbs, .css, .js, .ts) and images
       if (stats?.isFile()) {
-        return !/\.(hbs|css|js|ts)$/i.test(path);
+        return !/\.(hbs|css|js|ts|jpg|jpeg|png|webp|avif|svg)$/i.test(path);
       }
 
       // If stats is not available (some platforms/versions), check for extension

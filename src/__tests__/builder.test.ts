@@ -6,24 +6,10 @@ import {
   BuildResult,
   CompilationDetails,
 } from "../builder.js";
-import { formatBytes, GtbConfig, logToFile } from "../utils.js";
-import { ASSET_LOADERS } from "../constants.js";
 
 // Mock esbuild
 vi.mock("esbuild", () => ({
   build: vi.fn(),
-}));
-
-vi.mock("esbuild-style-plugin", () => ({
-  default: vi.fn(),
-}));
-
-vi.mock("postcss-import", () => ({
-  default: vi.fn(),
-}));
-
-vi.mock("autoprefixer", () => ({
-  default: vi.fn(),
 }));
 
 // Mock fs/promises
@@ -42,11 +28,17 @@ vi.mock("../utils.js", () => ({
 
 // Mock constants
 vi.mock("../constants.js", () => ({
-  ASSET_LOADERS: {
-    ".ts": "ts",
-    ".js": "js",
-    ".css": "css",
-  },
+  EXTERNAL_ASSETS: [
+    "*.png",
+    "*.jpg",
+    "*.jpeg",
+    "*.svg",
+    "*.gif",
+    "*.woff",
+    "*.woff2",
+    "*.ttf",
+    "*.otf",
+  ],
 }));
 
 import * as esbuild from "esbuild";
@@ -184,7 +176,7 @@ describe("writeAssets", () => {
 
     mockEsbuild.build.mockRejectedValue(new Error("Build failed"));
 
-    vi.spyOn(console, "error").mockImplementation(() => { });
+    vi.spyOn(console, "error").mockImplementation(() => {});
 
     const result = await writeAssets(["assets/js/index.ts"], 3000, true);
 
@@ -197,7 +189,7 @@ describe("writeAssets", () => {
 
     mockEsbuild.build.mockRejectedValue(new Error("Build failed"));
 
-    vi.spyOn(console, "error").mockImplementation(() => { });
+    vi.spyOn(console, "error").mockImplementation(() => {});
 
     await expect(
       writeAssets(["assets/js/index.ts"], 3000, false),
@@ -298,7 +290,7 @@ describe("writeAssets", () => {
 
 describe("inlineCritical", () => {
   const CSS_TAG =
-    '<link rel="stylesheet" type="text/css" href="{{asset "built/css/critical/index.css"}}">';
+    '<link rel="stylesheet" href="{{asset "built/css/critical/index.css"}}">';
   const JS_TAG =
     '<script src="{{asset "built/js/critical/index.js"}}"></script>';
 
@@ -321,7 +313,7 @@ describe("inlineCritical", () => {
 
     mockWriteFile.mockResolvedValue();
 
-    vi.spyOn(console, "log").mockImplementation(() => { });
+    vi.spyOn(console, "log").mockImplementation(() => {});
 
     await inlineCritical();
 
@@ -342,7 +334,7 @@ describe("inlineCritical", () => {
 
     mockWriteFile.mockResolvedValue();
 
-    vi.spyOn(console, "log").mockImplementation(() => { });
+    vi.spyOn(console, "log").mockImplementation(() => {});
 
     await inlineCritical();
 
@@ -359,7 +351,7 @@ describe("inlineCritical", () => {
     mockReadFile.mockResolvedValue("no tags here" as any);
     mockWriteFile.mockResolvedValue();
 
-    vi.spyOn(console, "log").mockImplementation(() => { });
+    vi.spyOn(console, "log").mockImplementation(() => {});
 
     await inlineCritical();
 
@@ -380,7 +372,7 @@ describe("inlineCritical", () => {
 
     mockWriteFile.mockResolvedValue();
 
-    vi.spyOn(console, "log").mockImplementation(() => { });
+    vi.spyOn(console, "log").mockImplementation(() => {});
 
     await inlineCritical();
 
@@ -398,8 +390,8 @@ describe("inlineCritical", () => {
     mockReadFile.mockResolvedValue("test content" as any);
     mockWriteFile.mockRejectedValue(new Error("Write failed"));
 
-    vi.spyOn(console, "log").mockImplementation(() => { });
-    vi.spyOn(console, "error").mockImplementation(() => { });
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
 
     await expect(inlineCritical()).resolves.not.toThrow();
   });

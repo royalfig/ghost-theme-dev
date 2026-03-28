@@ -2,8 +2,8 @@ import chalk from "chalk";
 import { readFileSync } from "node:fs";
 import WebSocket, { WebSocketServer } from "ws";
 import { FSWatcher } from "chokidar";
-import { CompilationDetails, tree, writeAssets } from "./builder.js";
-import { GtbConfig, logToFile, spawnSync } from "./utils.js";
+import { CompilationDetails, tree, writeAssets, inlineCritical } from "./builder.js";
+import { GtbConfig, logToFile, spawnSync, optimizeImages } from "./utils.js";
 
 export interface SiteData {
   url: string;
@@ -104,10 +104,34 @@ export async function initWs(
 
   watcher.on("all", async (event: string, path: string) => {
     logToFile(`File event: ${event} on ${path}`);
+    
+    const isImage = /\.(jpg|jpeg|png|webp|avif|svg)$/i.test(path);
+    
+    if (isImage && path.includes("assets/img") && !path.includes("assets/built/img")) {
+      if (event === "add" || event === "change") {
+        console.log(chalk.blue("⬥"), ` Optimizing image: ${path}`);
+        try {
+          await optimizeImages(process.cwd());
+          wss.clients.forEach((client) => {
+            if (client.readyState === WebSocket.OPEN) {
+              client.send(`Image optimized: ${path}`);
+            }
+          });
+        } catch (e) {
+          logToFile(`Image optimization error for ${path}: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      }
+      return;
+    }
+    
     if (path.endsWith(".hbs")) {
       printHeader(url, false, false);
       console.log(chalk.cyanBright(`{{  `), `${path} changed. Reloading...`);
       logToFile(`HBS change: ${path}. Reloading...`);
+
+      if (path === "default-template.hbs") {
+        await inlineCritical();
+      }
 
       wss.clients.forEach((client) => {
         if (client.readyState === WebSocket.OPEN) {
@@ -149,7 +173,9 @@ export async function initWs(
           }
         });
       } catch (e) {
-        logToFile(`Build error for ${rootFile}: ${e instanceof Error ? e.message : String(e)}`);
+        logToFile(
+          `Build error for ${rootFile}: ${e instanceof Error ? e.message : String(e)}`,
+        );
         printHeader(url, true);
       }
     }

@@ -1,12 +1,8 @@
 import * as esbuild from "esbuild";
 import chalk from "chalk";
 import { readFile, writeFile, copyFile } from "node:fs/promises";
-import stylePlugin from "esbuild-style-plugin";
-import postcssImport from "postcss-import";
-
-import autoprefixer from "autoprefixer";
 import { formatBytes, GtbConfig, logToFile } from "./utils.js";
-import { ASSET_LOADERS } from "./constants.js";
+import { EXTERNAL_ASSETS } from "./constants.js";
 
 export interface BuildResult {
   file: string;
@@ -20,14 +16,14 @@ export interface CompilationDetails {
 
 export const tree = new Map<string, string>();
 
-export async function inlineCritical() {
+export async function inlineCritical(templatePath = "default-template.hbs") {
   try {
     const CSS_TAG =
-      '<link rel="stylesheet" type="text/css" href="{{asset "built/css/critical/index.css"}}">';
+      '<link rel="stylesheet" href="{{asset "built/css/critical/index.css"}}">';
     const JS_TAG =
       '<script src="{{asset "built/js/critical/index.js"}}"></script>';
 
-    let defaultTemplate = await readFile("default-template.hbs", "utf8");
+    let defaultTemplate = await readFile(templatePath, "utf8");
 
     let cssContent = "";
     let jsContent = "";
@@ -60,7 +56,6 @@ export async function inlineCritical() {
         `<script>${jsContent}</script>`,
       );
     }
-
 
     await writeFile("default.hbs", defaultTemplate);
     console.log(chalk.blue("⬥"), " Critical assets inlined into default.hbs");
@@ -114,14 +109,7 @@ export async function writeAssets(
     sourcemap: true,
     metafile: true,
     target: ["es2020", "edge88", "firefox78", "chrome87", "safari14"],
-    loader: ASSET_LOADERS,
-    plugins: [
-      stylePlugin({
-        postcss: {
-          plugins: [postcssImport(), autoprefixer],
-        },
-      }),
-    ],
+    external: EXTERNAL_ASSETS,
     ...config?.esbuild,
   };
 
@@ -160,7 +148,11 @@ export async function writeAssets(
           results.push({ file: key, value: formatBytes(output.bytes) });
 
           const entryPoint = output.entryPoint;
-          if (entryPoint && output.inputs && typeof output.inputs === "object") {
+          if (
+            entryPoint &&
+            output.inputs &&
+            typeof output.inputs === "object"
+          ) {
             Object.keys(output.inputs).forEach((input) => {
               tree.set(input, entryPoint);
             });
