@@ -7,7 +7,6 @@ import {
   zipTheme,
   runDoctor,
   symLinkTheme,
-  cloneContent,
 } from "../cli.js";
 
 // Mock IO dependencies
@@ -250,20 +249,6 @@ describe("CLI Commands", () => {
 
       const result = await symLinkTheme();
       expect(result).toBe(false);
-    });
-  });
-
-  describe("cloneContent", () => {
-    it("should error when missing API credentials", async () => {
-      delete process.env.GHOST_ADMIN_API_URL;
-      delete process.env.GHOST_ADMIN_API_KEY;
-
-      const { readFile } = await import("node:fs/promises");
-      vi.mocked(readFile).mockResolvedValue("{}" as any);
-
-      await cloneContent();
-
-      expect(console.error).toHaveBeenCalled();
     });
   });
 

@@ -20,7 +20,6 @@ import {
   lintTheme,
   deployTheme,
   runDoctor,
-  cloneContent,
 } from "./cli.js";
 
 async function init() {
@@ -47,10 +46,6 @@ async function init() {
     console.log(`    check        Run theme validation using gscan`);
     console.log(`    lint         Run ESLint and Stylelint`);
     console.log(`    zip          Package theme into a zip file for upload`);
-    console.log(`    deploy       Deploy theme to a remote Ghost instance`);
-    console.log(
-      `    clone        Clone content from remote Ghost to local instance`,
-    );
     console.log(`    doctor       Check system for common Ghost/gtb issues`);
 
     console.log(`\n  ${chalk.bold("OPTIONS")}`);
@@ -64,30 +59,21 @@ async function init() {
   if (command === "init" || argv.includes("--init")) {
     await makeSkeleton();
     const linked = await symLinkTheme();
-    console.log(
-      chalk.green("⬥"),
-      "  Theme skeleton created successfully.",
-    );
-    
+    console.log(chalk.green("⬥"), "  Theme skeleton created successfully.");
+
     const installDeps = await confirm({
       message: "Would you like to install dependencies now?",
       default: true,
     });
-    
+
     if (installDeps) {
       await runNpmInstall();
     }
-    
+
     if (linked) {
-      console.log(
-        chalk.green("⬥"),
-        "  Theme linked successfully.",
-      );
+      console.log(chalk.green("⬥"), "  Theme linked successfully.");
     } else {
-      console.log(
-        chalk.yellow("⬥"),
-        "  Skipping theme linking.",
-      );
+      console.log(chalk.yellow("⬥"), "  Skipping theme linking.");
     }
     return;
   }
@@ -116,11 +102,6 @@ async function init() {
 
   if (command === "doctor") {
     await runDoctor();
-    return;
-  }
-
-  if (command === "clone") {
-    await cloneContent();
     return;
   }
 
@@ -154,7 +135,7 @@ async function init() {
     } catch (e) {
       console.log(chalk.yellow("┃"), " Image optimization skipped or failed.");
     }
-    
+
     const url = await parseGhostCliOutput();
     // Use a function-based ignore to only watch necessary theme files
     const ignored = (path: string, stats?: any) => {
