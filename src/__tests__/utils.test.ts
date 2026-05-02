@@ -197,7 +197,7 @@ describe("findEntryPoints", () => {
   it("should return empty array if no entry points found", async () => {
     vi.mocked(readdir).mockRejectedValue(new Error("Not found"));
 
-    const result = await findEntryPoints("assets/js", [".css"]);
+    const result = await findEntryPoints("src/js", [".css"]);
     expect(result).toHaveLength(0);
   });
 });
@@ -289,7 +289,7 @@ describe("optimizeImages", () => {
     vi.mocked(stat).mockClear();
   });
 
-  it("should skip if assets/img directory does not exist", async () => {
+  it("should skip if src/img directory does not exist", async () => {
     vi.mocked(existsSync).mockReturnValue(false);
 
     await optimizeImages("/test/path");
@@ -322,7 +322,7 @@ describe("optimizeImages", () => {
 
     await optimizeImages("/test/path");
 
-    expect(readdir).toHaveBeenCalledWith("/test/path/assets/img");
+    expect(readdir).toHaveBeenCalledWith("/test/path/src/img");
     expect(toFileMock.toFile).not.toHaveBeenCalled();
   });
 
@@ -361,7 +361,7 @@ describe("optimizeImages", () => {
 
     await optimizeImages("/test/path");
 
-    expect(readdir).toHaveBeenCalledWith("/test/path/assets/img");
+    expect(readdir).toHaveBeenCalledWith("/test/path/src/img");
     expect(toFileMock.toFile).toHaveBeenCalledTimes(6);
   });
 
@@ -396,7 +396,7 @@ describe("optimizeImages", () => {
 
     await optimizeImages("/test/path");
 
-    expect(readdir).toHaveBeenCalledWith("/test/path/assets/img");
+    expect(readdir).toHaveBeenCalledWith("/test/path/src/img");
     expect(toFileMock.toFile).not.toHaveBeenCalled();
   });
 
@@ -440,7 +440,7 @@ it("should process all files when force is true", async () => {
 
     await optimizeImages("/test/path", true);
 
-    expect(readdir).toHaveBeenCalledWith("/test/path/assets/img");
+    expect(readdir).toHaveBeenCalledWith("/test/path/src/img");
     expect(toFileMock.toFile).toHaveBeenCalledTimes(3);
   });
 });

@@ -9,12 +9,6 @@ import sharp from "sharp";
 export { spawnSync };
 
 export interface GtbConfig {
-    assetsDir?: string;
-    outDir?: string;
-    entryPoints?: {
-        js?: string[];
-        css?: string[];
-    };
     esbuild?: any;
 }
 
@@ -235,7 +229,7 @@ export async function downloadFile(url: string, dest: string) {
 }
 
 export async function optimizeImages(folderPath: string, force = false) {
-    const imgDir = join(folderPath, "assets/img");
+    const imgDir = join(folderPath, "src/img");
     const builtImgDir = join(folderPath, "assets/built/img");
 
     if (!existsSync(imgDir)) return;

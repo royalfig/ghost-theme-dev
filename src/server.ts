@@ -107,7 +107,7 @@ export async function initWs(
     
     const isImage = /\.(jpg|jpeg|png|webp|avif|svg)$/i.test(path);
     
-    if (isImage && path.includes("assets/img") && !path.includes("assets/built/img")) {
+    if (isImage && path.includes("src/img") && !path.includes("assets/built/img")) {
       if (event === "add" || event === "change") {
         console.log(chalk.blue("⬥"), ` Optimizing image: ${path}`);
         try {

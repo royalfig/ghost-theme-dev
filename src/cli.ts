@@ -81,14 +81,14 @@ export async function makeSkeleton() {
     { filename: "tag.hbs", content: TAG_TEMPLATE_CONTENT },
     { filename: "error-404.hbs", content: ERROR_404_TEMPLATE_CONTENT },
     { filename: "default-template.hbs", content: DEFAULT_TEMPLATE_CONTENT },
-    { filename: "assets/css/ghost.css", content: GHOST_CSS_CONTENT },
-    { filename: "assets/css/index.css", content: INDEX_CSS_CONTENT },
+    { filename: "src/css/ghost.css", content: GHOST_CSS_CONTENT },
+    { filename: "src/css/index.css", content: INDEX_CSS_CONTENT },
     {
-      filename: "assets/js/index.ts",
+      filename: "src/js/index.ts",
       content: "console.log('Hello World');",
     },
-    { filename: "assets/js/darkMode.ts", content: DARK_MODE_HANDLER_JS },
-    { filename: "assets/js/critical/index.ts", content: DARK_MODE_CRITICAL_JS },
+    { filename: "src/js/darkMode.ts", content: DARK_MODE_HANDLER_JS },
+    { filename: "src/js/critical/index.ts", content: DARK_MODE_CRITICAL_JS },
     { filename: "partials/header.hbs", content: HEADER_PARTIAL_CONTENT },
     { filename: "partials/footer.hbs", content: FOOTER_PARTIAL_CONTENT },
     { filename: "partials/card.hbs", content: CARD_PARTIAL_CONTENT },
@@ -101,11 +101,11 @@ export async function makeSkeleton() {
       content: DARK_MODE_TOGGLE_HBS,
     },
     {
-      filename: "assets/css/critical/index.css",
+      filename: "src/css/critical/index.css",
       content: CRITICAL_CSS_CONTENT,
     },
     {
-      filename: "assets/css/critical/reset.css",
+      filename: "src/css/critical/reset.css",
       content: CSS_RESET,
     },
     {
@@ -202,7 +202,7 @@ export async function checkTheme() {
 export async function lintTheme() {
   console.log(chalk.blue("⬥"), " Running ESLint...");
   try {
-    runCommand('npx eslint "assets/js/**/*.{js,ts}" --fix', true);
+    runCommand('npx eslint "src/js/**/*.{js,ts}" --fix', true);
     console.log(chalk.green("✔"), " JS/TS linting passed.");
   } catch (e) {
     /* ignore */
@@ -210,7 +210,7 @@ export async function lintTheme() {
 
   console.log(chalk.blue("⬥"), " Running Stylelint...");
   try {
-    runCommand('npx stylelint "assets/css/**/*.css" --fix', true);
+    runCommand('npx stylelint "src/css/**/*.css" --fix', true);
     console.log(chalk.green("✔"), " CSS linting passed.");
   } catch (e) {
     /* ignore */

@@ -4,16 +4,31 @@ A development framework and build tool for Ghost themes.
 
 gtb provides a development environment with live reload, CSS injection, critical asset inlining, and image optimization.
 
+## Project Structure
+
+```
+your-theme/
+├── src/
+│   ├── js/              # TypeScript / JavaScript entry points
+│   │   └── css/         # CSS entry points
+│   │   └── img/         # Images (optimized via sharp)
+│   │   └── critical/    # Critical CSS/JS (inlined into templates)
+├── assets/
+│   ├── fonts/           # Static font files
+│   └── built/           # Build output (js, css, img)
+├── default-template.hbs  # Your template (edited here, rendered to default.hbs)
+└── gtb.config.js        # Optional: esbuild overrides only
+```
+
 ## Features
 
 - Fast builds with esbuild
 - Live reload with CSS hot injection
 - Critical CSS/JS inlining
 - Dark mode support
-- TS/JS build/compile, with automatic folder detection
+- TypeScript / JavaScript compilation
 - Image compression/resizing
 - Environment diagnostics (doctor command)
-- Modular configuration via gtb.config.js
 - Theme validation with gscan
 
 ---
@@ -61,7 +76,7 @@ Starts the dev server, watches all files, and opens your local Ghost site in the
 
 gtb handles performance-critical patterns natively:
 
-- **Critical CSS/JS**: Any file placed in `assets/css/critical/` or named `critical.ts` will be built as a critical asset and automatically inlined into `default.hbs`.
+- **Critical CSS/JS**: Any file placed in `src/css/critical/` or named `critical.ts` will be built as a critical asset and automatically inlined into `default.hbs`.
 - **Dark Mode**: The init command generates a `critical.ts` that prevents theme flickering and a `darkMode.ts` for toggle logic.
 
 :::warning
@@ -72,17 +87,11 @@ Make changes to `default-template.hbs`. On dev/build, this file is rendered as `
 
 ## Configuration (gtb.config.js)
 
-While gtb is zero-config, you can customize it by creating a `gtb.config.js` in your root:
+gtb is zero-config by default — it reads from `src/js/` and `src/css/`, outputting to `assets/built/`. You can customize esbuild options only:
 
 ```javascript
 /** @type {import('@royalfig/gtb').GtbConfig} */
 export default {
-  assetsDir: "assets",
-  outDir: "assets/built",
-  entryPoints: {
-    js: ["assets/js/index.ts", "assets/js/custom-feature.ts"],
-    css: ["assets/css/index.css"],
-  },
   esbuild: {
     target: "esnext",
     external: ["node-fetch"],

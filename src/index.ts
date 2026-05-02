@@ -107,8 +107,8 @@ async function init() {
 
   const isWatch = argv.includes("--watch") || command === "dev";
 
-  const jsDir = config.entryPoints?.js || ["assets/js"];
-  const cssDir = config.entryPoints?.css || ["assets/css"];
+  const jsDir = ["src/js"];
+  const cssDir = ["src/css"];
 
   let jsEntryPoints: string[] = [];
   for (const dir of jsDir) {
