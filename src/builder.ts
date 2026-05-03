@@ -7,7 +7,39 @@ import browserslist from "browserslist";
 import { formatBytes, GtbConfig, logToFile } from "./utils.js";
 import { EXTERNAL_ASSETS } from "./constants.js";
 
-const BROWSER_TARGETS = browserslistToTargets(browserslist("defaults"));
+// Browserslist browser name → esbuild engine name (unmapped browsers are skipped)
+const BROWSERSLIST_TO_ESBUILD: Record<string, string> = {
+  edge: "edge",
+  firefox: "firefox",
+  chrome: "chrome",
+  safari: "safari",
+  ios_saf: "ios",
+  node: "node",
+  ie: "ie",
+  opera: "opera",
+  android: "chrome",
+  and_chr: "chrome",
+  and_ff: "firefox",
+};
+
+function browserslistToEsbuildTargets(browsers: string[]): string[] {
+  const targets: string[] = [];
+  for (const entry of browsers) {
+    const idx = entry.lastIndexOf(" ");
+    if (idx === -1) continue;
+    const engine = BROWSERSLIST_TO_ESBUILD[entry.slice(0, idx)];
+    if (!engine) continue;
+    // Normalize: take lower bound of ranges ("13.4-13.7" → "13.4"), "all" → "1"
+    const version = entry.slice(idx + 1).replace(/-[\d.]+$/, "").replace("all", "1");
+    if (!/^\d+(\.\d+)*$/.test(version)) continue;
+    targets.push(`${engine}${version}`);
+  }
+  return targets;
+}
+
+const BROWSERSLIST_QUERY = browserslist("defaults");
+const BROWSER_TARGETS = browserslistToTargets(BROWSERSLIST_QUERY);
+const ESBUILD_TARGETS = browserslistToEsbuildTargets(BROWSERSLIST_QUERY);
 
 export interface BuildResult {
   file: string;
@@ -166,7 +198,7 @@ export async function writeAssets(
     minify: !isWatch,
     sourcemap: true,
     metafile: true,
-    target: ["es2020", "edge88", "firefox78", "chrome87", "safari14"],
+    target: ESBUILD_TARGETS,
     external: EXTERNAL_ASSETS,
     ...config?.esbuild,
   };
