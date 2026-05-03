@@ -5,7 +5,7 @@ import chalk from "chalk";
 chalk.level = 0;
 
 vi.mock("node:fs", () => ({
-  readFileSync: vi.fn(),
+  readFileSync: vi.fn(() => JSON.stringify({ version: "3.0.0" })),
 }));
 
 vi.mock("ws", () => {
@@ -31,7 +31,6 @@ vi.mock("../utils.js", () => ({
 import { printCompilationDetails, printHeader, initWs } from "../server.js";
 import { tree, writeAssets } from "../builder.js";
 import type { CompilationDetails } from "../builder.js";
-import { readFileSync } from "node:fs";
 import { WebSocketServer } from "ws";
 
 function captureOutput(fn: () => void): string {
@@ -110,10 +109,6 @@ describe("printHeader", () => {
   });
 
   it("should print header with version", () => {
-    vi.mocked(readFileSync).mockReturnValue(
-      JSON.stringify({ version: "3.0.0" }),
-    );
-
     const output = captureOutput(() =>
       printHeader("http://localhost:3000", false, false),
     );
@@ -123,10 +118,6 @@ describe("printHeader", () => {
   });
 
   it("should print header with connection error", () => {
-    vi.mocked(readFileSync).mockReturnValue(
-      JSON.stringify({ version: "3.0.0" }),
-    );
-
     const output = captureOutput(() =>
       printHeader("http://localhost:3000", true, false),
     );
@@ -135,10 +126,6 @@ describe("printHeader", () => {
   });
 
   it("should print header on first connection", () => {
-    vi.mocked(readFileSync).mockReturnValue(
-      JSON.stringify({ version: "3.0.0" }),
-    );
-
     const output = captureOutput(() =>
       printHeader("http://localhost:3000", false, true),
     );
@@ -147,10 +134,6 @@ describe("printHeader", () => {
   });
 
   it("should show Visit message when no site data", () => {
-    vi.mocked(readFileSync).mockReturnValue(
-      JSON.stringify({ version: "3.0.0" }),
-    );
-
     const output = captureOutput(() =>
       printHeader("http://localhost:3000", false, false),
     );
@@ -172,9 +155,6 @@ describe("initWs", () => {
 
   function setupInitWs() {
     vi.useFakeTimers();
-    vi.mocked(readFileSync).mockReturnValue(
-      JSON.stringify({ version: "3.0.0" }),
-    );
     vi.spyOn(console, "log").mockImplementation(() => {});
     vi.spyOn(console, "clear").mockImplementation(() => {});
 
@@ -238,6 +218,7 @@ describe("initWs", () => {
     )?.[1];
 
     await watcherCallback("change", "assets/js/index.ts");
+    await vi.runAllTimersAsync();
     expect(writeAssets).toHaveBeenCalled();
   });
 
@@ -257,6 +238,7 @@ describe("initWs", () => {
     )?.[1];
 
     await watcherCallback("change", "assets/css/index.css");
+    await vi.runAllTimersAsync();
     expect(writeAssets).toHaveBeenCalled();
   });
 

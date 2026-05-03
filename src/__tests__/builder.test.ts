@@ -20,7 +20,6 @@ vi.mock("node:fs", () => ({
 vi.mock("node:fs/promises", () => ({
   readFile: vi.fn(),
   writeFile: vi.fn(),
-  copyFile: vi.fn(),
 }));
 
 // Mock utils
@@ -98,10 +97,10 @@ describe("writeAssets", () => {
   it("should build assets successfully", async () => {
     const mockEsbuild = vi.mocked(esbuild);
 
-    mockEsbuild.build.mockResolvedValue(
+mockEsbuild.build.mockResolvedValue(
       makeMetafile(
         {
-          "src/built/js/index.js": {
+          "assets/built/js/index.js": {
             bytes: 512,
             entryPoint: "src/js/index.ts",
             inputs: { "src/js/index.ts": { bytesInOutput: 512 } },
@@ -115,7 +114,7 @@ describe("writeAssets", () => {
 
     expect(result.results).toHaveLength(1);
     expect(result.results[0]).toEqual({
-      file: "src/built/js/index.js",
+      file: "assets/built/js/index.js",
       value: "512 bytes",
     });
     expect(result.time).toBeGreaterThan(0);
@@ -131,7 +130,7 @@ describe("writeAssets", () => {
     mockEsbuild.build.mockResolvedValue(
       makeMetafile(
         {
-          "src/built/js/critical/index.js": {
+          "assets/built/js/critical/index.js": {
             bytes: 512,
             entryPoint: "src/js/critical/index.ts",
             inputs: {
@@ -175,7 +174,7 @@ describe("writeAssets", () => {
     mockEsbuild.build.mockResolvedValue(
       makeMetafile(
         {
-          "src/built/js/critical/index.js": {
+          "assets/built/js/critical/index.js": {
             bytes: 512,
             entryPoint: "src/js/critical/index.ts",
             inputs: {
@@ -233,7 +232,7 @@ describe("writeAssets", () => {
       .mockResolvedValueOnce(
         makeMetafile(
           {
-            "src/built/js/index.js": {
+            "assets/built/js/index.js": {
               bytes: 512,
               entryPoint: "src/js/index.ts",
               inputs: { "src/js/index.ts": { bytesInOutput: 512 } },
@@ -245,7 +244,7 @@ describe("writeAssets", () => {
       .mockResolvedValueOnce(
         makeMetafile(
           {
-            "src/built/css/index.css": {
+            "assets/built/css/index.css": {
               bytes: 256,
               entryPoint: "src/css/index.css",
               inputs: { "src/css/index.css": { bytesInOutput: 256 } },
@@ -270,7 +269,7 @@ describe("writeAssets", () => {
     mockEsbuild.build.mockResolvedValue(
       makeMetafile(
         {
-          "src/built/js/index.js": {
+          "assets/built/js/index.js": {
             bytes: 512,
             entryPoint: "src/js/index.ts",
             inputs: {
@@ -295,12 +294,12 @@ describe("writeAssets", () => {
     mockEsbuild.build.mockResolvedValue(
       makeMetafile(
         {
-          "src/built/js/index.js": {
+          "assets/built/js/index.js": {
             bytes: 512,
             entryPoint: "src/js/index.ts",
             inputs: { "src/js/index.ts": { bytesInOutput: 512 } },
           },
-          "src/built/js/index.js.map": {
+          "assets/built/js/index.js.map": {
             bytes: 256,
             inputs: { "src/js/index.ts": { bytesInOutput: 256 } },
           },

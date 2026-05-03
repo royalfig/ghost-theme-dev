@@ -3,7 +3,11 @@ import { readFileSync } from "node:fs";
 import WebSocket, { WebSocketServer } from "ws";
 import { FSWatcher } from "chokidar";
 import { CompilationDetails, tree, writeAssets, inlineCritical } from "./builder.js";
-import { GtbConfig, logToFile, spawnSync, optimizeImages } from "./utils.js";
+import { GtbConfig, logToFile, optimizeImages } from "./utils.js";
+
+const VERSION: string = JSON.parse(
+  readFileSync(new URL("../package.json", import.meta.url), "utf-8"),
+).version;
 
 export interface SiteData {
   url: string;
@@ -12,7 +16,14 @@ export interface SiteData {
 }
 
 let siteData: SiteData | null = null;
-let timeoutId: NodeJS.Timeout | null = null;
+
+function broadcast(wss: WebSocketServer, message: string): void {
+  wss.clients.forEach((client) => {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(message);
+    }
+  });
+}
 
 export function printCompilationDetails(
   content: CompilationDetails,
@@ -48,12 +59,9 @@ export function printHeader(
   connectionError = false,
   firstConnection = false,
 ) {
-  const pkg = JSON.parse(
-    readFileSync(new URL("../package.json", import.meta.url), "utf-8"),
-  );
   console.clear();
   console.log(
-    `${chalk.bold.green("●")}  Ghost theme dev server running (v${pkg.version})...`,
+    `${chalk.bold.green("●")}  Ghost theme dev server running (v${VERSION})...`,
   );
 
   if (connectionError) {
@@ -89,7 +97,7 @@ export async function initWs(
   watcher: FSWatcher,
   config?: GtbConfig,
 ) {
-  timeoutId = setTimeout(() => {
+  let timeoutId: NodeJS.Timeout | null = setTimeout(() => {
     console.clear();
     printHeader(url, true);
   }, 5000);
@@ -101,6 +109,7 @@ export async function initWs(
   });
 
   let firstConnection = true;
+  const pendingRebuild = new Map<string, ReturnType<typeof setTimeout>>();
 
   watcher.on("all", async (event: string, path: string) => {
     logToFile(`File event: ${event} on ${path}`);
@@ -112,11 +121,7 @@ export async function initWs(
         console.log(chalk.blue("⬥"), ` Optimizing image: ${path}`);
         try {
           await optimizeImages(process.cwd());
-          wss.clients.forEach((client) => {
-            if (client.readyState === WebSocket.OPEN) {
-              client.send(`Image optimized: ${path}`);
-            }
-          });
+          broadcast(wss, `Image optimized: ${path}`);
         } catch (e) {
           logToFile(`Image optimization error for ${path}: ${e instanceof Error ? e.message : String(e)}`);
         }
@@ -133,11 +138,7 @@ export async function initWs(
         await inlineCritical();
       }
 
-      wss.clients.forEach((client) => {
-        if (client.readyState === WebSocket.OPEN) {
-          client.send("HBS changed: " + path);
-        }
-      });
+      broadcast(wss, "HBS changed: " + path);
     }
 
     const isBuildArtifact =
@@ -160,24 +161,25 @@ export async function initWs(
         rootFile = entryPoint;
       }
 
-      logToFile(`Rebuilding ${rootFile} due to change in ${path}`);
-      try {
-        const res = await writeAssets([rootFile], port, true, config);
+      const existing = pendingRebuild.get(rootFile);
+      if (existing) clearTimeout(existing);
 
-        printHeader(url, false, false);
-        printCompilationDetails(res, path);
+      pendingRebuild.set(rootFile, setTimeout(async () => {
+        pendingRebuild.delete(rootFile);
+        logToFile(`Rebuilding ${rootFile} due to change in ${path}`);
+        try {
+          const res = await writeAssets([rootFile], port, true, config);
 
-        wss.clients.forEach((client) => {
-          if (client.readyState === WebSocket.OPEN) {
-            client.send(`File changed: ${path}`);
-          }
-        });
-      } catch (e) {
-        logToFile(
-          `Build error for ${rootFile}: ${e instanceof Error ? e.message : String(e)}`,
-        );
-        printHeader(url, true);
-      }
+          printHeader(url, false, false);
+          printCompilationDetails(res, path);
+          broadcast(wss, `File changed: ${path}`);
+        } catch (e) {
+          logToFile(
+            `Build error for ${rootFile}: ${e instanceof Error ? e.message : String(e)}`,
+          );
+          printHeader(url, true);
+        }
+      }, 50));
     }
   });
 

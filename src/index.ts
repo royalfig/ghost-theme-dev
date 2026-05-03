@@ -6,6 +6,7 @@ import confirm from "@inquirer/confirm";
 import { argv } from "node:process";
 import { getPortPromise } from "portfinder";
 import open from "open";
+import type { Stats } from "node:fs";
 
 import { findEntryPoints, loadConfig, optimizeImages } from "./utils.js";
 import { writeAssets } from "./builder.js";
@@ -107,18 +108,8 @@ async function init() {
 
   const isWatch = argv.includes("--watch") || command === "dev";
 
-  const jsDir = ["src/js"];
-  const cssDir = ["src/css"];
-
-  let jsEntryPoints: string[] = [];
-  for (const dir of jsDir) {
-    jsEntryPoints.push(...(await findEntryPoints(dir, [".ts", ".js"])));
-  }
-
-  let cssEntryPoints: string[] = [];
-  for (const dir of cssDir) {
-    cssEntryPoints.push(...(await findEntryPoints(dir, [".css"])));
-  }
+  const jsEntryPoints = await findEntryPoints("src/js", [".ts", ".js"]);
+  const cssEntryPoints = await findEntryPoints("src/css", [".css"]);
 
   const port = isWatch ? await getPortPromise({ port: 3000 }) : 0;
   const res = await writeAssets(
@@ -137,14 +128,11 @@ async function init() {
     }
 
     const url = await parseGhostCliOutput();
-    // Use a function-based ignore to only watch necessary theme files
-    const ignored = (path: string, stats?: any) => {
-      // Ignore hidden files and directories
+    const ignored = (path: string, stats?: Stats) => {
       if (path !== "." && /(^|[/\\])\../.test(path)) return true;
 
       const lowerPath = path.toLowerCase();
 
-      // Always ignore build artifacts and node_modules
       if (
         lowerPath.includes("node_modules") ||
         lowerPath.includes("dist") ||
@@ -155,13 +143,10 @@ async function init() {
         return true;
       }
 
-      // If it's a file, only allow theme-related ones (.hbs, .css, .js, .ts) and images
       if (stats?.isFile()) {
         return !/\.(hbs|css|js|ts|jpg|jpeg|png|webp|avif|svg)$/i.test(path);
       }
 
-      // If stats is not available (some platforms/versions), check for extension
-      // If it has an extension and it's not one of ours, ignore it
       if (/\.[^/\\]+$/.test(path)) {
         return !/\.(hbs|css|js|ts)$/i.test(path);
       }
@@ -171,6 +156,7 @@ async function init() {
 
     const watcher = chokidar.watch(".", {
       ignored,
+      ignoreInitial: true,
     });
     await initWs(res, port, url, watcher, config);
 

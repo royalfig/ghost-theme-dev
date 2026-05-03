@@ -1,8 +1,7 @@
 import * as esbuild from "esbuild";
 import chalk from "chalk";
-import { readFile, writeFile, copyFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { readdirSync } from "node:fs";
-import { join, dirname } from "node:path";
 import { transform, Features, browserslistToTargets } from "lightningcss";
 import browserslist from "browserslist";
 import { formatBytes, GtbConfig, logToFile } from "./utils.js";
@@ -73,10 +72,9 @@ export async function inlineCritical(criticalDir = "assets/built", templatePath 
 }
 
 async function postProcessCSS(cssFiles: string[], isWatch: boolean): Promise<void> {
-  for (const file of cssFiles) {
+  await Promise.all(cssFiles.map(async (file) => {
     try {
       const code = await readFile(file);
-
       const result = transform({
         filename: file,
         code,
@@ -89,13 +87,16 @@ async function postProcessCSS(cssFiles: string[], isWatch: boolean): Promise<voi
       await writeFile(file, result.code);
 
       if (result.map) {
-        const mapPath = file + ".map";
-        await writeFile(mapPath, JSON.stringify(result.map));
+        const mapContent = result.map instanceof Uint8Array
+          ? Buffer.from(result.map)
+          : JSON.stringify(typeof result.map === "object" ? result.map : {});
+        await writeFile(file + ".map", mapContent);
       }
     } catch (e) {
+      console.error(chalk.red("✘  CSS post-processing failed for"), file);
       logToFile(`CSS post-processing failed for ${file}: ${e instanceof Error ? e.message : String(e)}`);
     }
-  }
+  }));
 }
 
 function getCriticalDirs(criticalDir: string): string[] {
@@ -165,12 +166,11 @@ export async function writeAssets(
     minify: !isWatch,
     sourcemap: true,
     metafile: true,
-    target: "defaults",
+    target: ["es2020", "edge88", "firefox78", "chrome87", "safari14"],
     external: EXTERNAL_ASSETS,
     ...config?.esbuild,
   };
 
-  // If we need special handling for the footer in watch mode, we might need to partition
   const mainEntry = entryPoints.find(
     (e) => e.includes("src/js/index") && !e.includes("/critical/"),
   );
@@ -186,6 +186,7 @@ export async function writeAssets(
 
   try {
     const results: BuildResult[] = [];
+    const cssFiles: string[] = [];
 
     const builds = [];
     if (mainEntry) {
@@ -197,26 +198,19 @@ export async function writeAssets(
 
     const resList = await Promise.all(builds);
 
-    const cssFiles: string[] = [];
-
     for (const res of resList) {
       if (res.metafile) {
         Object.entries(res.metafile.outputs).forEach(([key, value]) => {
           if (key.endsWith(".map")) return;
-          const output = value as any;
-          results.push({ file: key, value: formatBytes(output.bytes) });
+          results.push({ file: key, value: formatBytes(value.bytes) });
 
           if (key.endsWith(".css")) {
             cssFiles.push(key);
           }
 
-          const entryPoint = output.entryPoint;
-          if (
-            entryPoint &&
-            output.inputs &&
-            typeof output.inputs === "object"
-          ) {
-            Object.keys(output.inputs).forEach((input) => {
+          const { entryPoint, inputs } = value;
+          if (entryPoint && inputs && typeof inputs === "object") {
+            Object.keys(inputs).forEach((input) => {
               tree.set(input, entryPoint);
             });
           }
@@ -224,19 +218,18 @@ export async function writeAssets(
       }
     }
 
-    // Always inline critical. Need to duplicate the default.hbs file
-    await inlineCritical();
-
-    // Post-process CSS with lightningcss for browser-targeted transforms
     if (cssFiles.length > 0) {
       await postProcessCSS(cssFiles, isWatch);
     }
 
+    await inlineCritical();
+
     const end = performance.now();
     return { results, time: end - start };
-  } catch (error: any) {
-    console.error(chalk.red("\n┃ Build failed:"), error.message || error);
-    logToFile(`Build failed: ${error.message || error}`);
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error(chalk.red("\n┃ Build failed:"), msg);
+    logToFile(`Build failed: ${msg}`);
     if (!isWatch) throw error;
     return { results: [], time: 0 };
   }
