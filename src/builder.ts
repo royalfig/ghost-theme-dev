@@ -44,8 +44,6 @@ const BROWSERSLIST_QUERY = browserslist("baseline widely available");
 const BROWSER_TARGETS = browserslistToTargets(BROWSERSLIST_QUERY);
 const ESBUILD_TARGETS = browserslistToEsbuildTargets(BROWSERSLIST_QUERY);
 
-console.log(BROWSERSLIST_QUERY.toString());
-
 export interface BuildResult {
   file: string;
   value: string;
@@ -135,11 +133,6 @@ async function postProcessCSS(
           minify: !isWatch,
           sourceMap: true,
           targets: BROWSER_TARGETS,
-          include:
-            Features.Nesting |
-            Features.MediaQueries |
-            Features.Colors |
-            Features.VendorPrefixes,
         });
 
         await writeFile(file, result.code);
