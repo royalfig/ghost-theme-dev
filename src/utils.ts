@@ -153,6 +153,10 @@ export async function findFilesRecursively(directory: string): Promise<string[]>
   return files;
 }
 
+function isEntryPoint(filename: string, exts: string[]): boolean {
+  return exts.some((ext) => filename.endsWith(ext)) && (filename.includes("index") || filename.includes("critical"));
+}
+
 export async function findEntryPoints(entryPointPath: string, exts: string[]): Promise<string[]> {
   try {
     const { readdir } = await import("node:fs/promises");
@@ -169,10 +173,21 @@ export async function findEntryPoints(entryPointPath: string, exts: string[]): P
           const subEntries = await readdir(subDirPath, { withFileTypes: true });
           for (const subEntry of subEntries) {
             if (!subEntry.isDirectory()) {
-              if ((subEntry.name.includes("index") || subEntry.name.includes("critical")) &&
-                  exts.some((ext) => subEntry.name.endsWith(ext))) {
+              if (isEntryPoint(subEntry.name, exts)) {
                 entryPoints.push(join(subDirPath, subEntry.name));
               }
+            } else {
+              // 2nd level: read files in sub-subdirectories
+              try {
+                const deepEntries = await readdir(join(subDirPath, subEntry.name), { withFileTypes: true });
+                for (const deepEntry of deepEntries) {
+                  if (!deepEntry.isDirectory()) {
+                    if (isEntryPoint(deepEntry.name, exts)) {
+                      entryPoints.push(join(subDirPath, subEntry.name, deepEntry.name));
+                    }
+                  }
+                }
+              } catch (e) { /* ignore */ }
             }
           }
         } catch (e) { /* ignore */ }

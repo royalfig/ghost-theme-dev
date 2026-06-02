@@ -66,6 +66,117 @@ describe("formatBytes", () => {
     expect(formatBytes(1536)).toBe("1.5 KiB");
   });
 });
+describe("findEntryPoints", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("should return empty array if no entry points found", async () => {
+    vi.mocked(readdir).mockRejectedValue(new Error("Not found"));
+
+    const result = await findEntryPoints("src/js", [".css"]);
+    expect(result).toHaveLength(0);
+  });
+
+  it("should discover entry points in top-level subdirectories", async () => {
+    let callCount = 0;
+    vi.mocked(readdir).mockReset().mockImplementation(async (...args: any[]) => {
+      callCount++;
+      if (callCount === 1) {
+        return [
+          { name: "js", isDirectory: () => true, isFile: () => false },
+          { name: "css", isDirectory: () => true, isFile: () => false },
+        ] as any;
+      }
+      if (callCount === 2) {
+        return [
+          { name: "index.ts", isDirectory: () => false, isFile: () => true },
+          { name: "utils.ts", isDirectory: () => false, isFile: () => true },
+        ] as any;
+      }
+      return [
+        { name: "index.css", isDirectory: () => false, isFile: () => true },
+      ] as any;
+    });
+
+    const result = await findEntryPoints("src", [".ts", ".css"]);
+
+    expect(result).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("js/index.ts"),
+        expect.stringContaining("css/index.css"),
+      ]),
+    );
+  });
+
+  it("should discover entry points in nested subdirectories (2-level recursion)", async () => {
+    let callCount = 0;
+    vi.mocked(readdir).mockReset().mockImplementation(async (...args: any[]) => {
+      callCount++;
+      if (callCount === 1) {
+        return [
+          { name: "critical", isDirectory: () => true, isFile: () => false },
+          { name: "index.css", isDirectory: () => false, isFile: () => true },
+        ] as any;
+      }
+      if (callCount === 2) {
+        return [
+          { name: "home", isDirectory: () => true, isFile: () => false },
+          { name: "index.css", isDirectory: () => false, isFile: () => true },
+          { name: "reset.css", isDirectory: () => false, isFile: () => true },
+        ] as any;
+      }
+      return [
+        { name: "index.css", isDirectory: () => false, isFile: () => true },
+      ] as any;
+    });
+
+    const result = await findEntryPoints("src/css", [".css"]);
+
+    expect(result).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("critical/home/index.css"),
+        expect.stringContaining("index.css"),
+      ]),
+    );
+  });
+
+  it("should only pick up index/critical files in subdirectories", async () => {
+    vi.mocked(readdir).mockClear().mockReset();
+    let callCount = 0;
+    vi.mocked(readdir).mockImplementation(async (...args: any[]) => {
+      callCount++;
+      if (callCount === 1) {
+        return [
+          { name: "css", isDirectory: () => true, isFile: () => false },
+        ] as any;
+      }
+      return [
+        { name: "util.css", isDirectory: () => false, isFile: () => true },
+        { name: "reset.css", isDirectory: () => false, isFile: () => true },
+      ] as any;
+    });
+
+    const result = await findEntryPoints("src", [".css"]);
+
+    expect(result).toHaveLength(0);
+  });
+
+  it("should skip built/dist/node_modules directories", async () => {
+    vi.mocked(readdir).mockReset().mockImplementation(async (...args: any[]) => {
+      return [
+        { name: "built", isDirectory: () => true, isFile: () => false },
+        { name: "dist", isDirectory: () => true, isFile: () => false },
+        { name: "node_modules", isDirectory: () => true, isFile: () => false },
+      ] as any;
+    });
+
+    const result = await findEntryPoints("src", [".ts"]);
+
+    expect(result).toHaveLength(0);
+  });
+});
+
 
 describe("checkNodeVersion", () => {
   let checkNodeVersion: typeof import("../utils.js").checkNodeVersion;
@@ -186,19 +297,6 @@ describe("loadConfig", () => {
 
     const result = await loadConfig();
     expect(result).toEqual({});
-  });
-});
-
-describe("findEntryPoints", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-  });
-
-  it("should return empty array if no entry points found", async () => {
-    vi.mocked(readdir).mockRejectedValue(new Error("Not found"));
-
-    const result = await findEntryPoints("src/js", [".css"]);
-    expect(result).toHaveLength(0);
   });
 });
 

@@ -30,16 +30,21 @@ function browserslistToEsbuildTargets(browsers: string[]): string[] {
     const engine = BROWSERSLIST_TO_ESBUILD[entry.slice(0, idx)];
     if (!engine) continue;
     // Normalize: take lower bound of ranges ("13.4-13.7" → "13.4"), "all" → "1"
-    const version = entry.slice(idx + 1).replace(/-[\d.]+$/, "").replace("all", "1");
+    const version = entry
+      .slice(idx + 1)
+      .replace(/-[\d.]+$/, "")
+      .replace("all", "1");
     if (!/^\d+(\.\d+)*$/.test(version)) continue;
     targets.push(`${engine}${version}`);
   }
   return targets;
 }
 
-const BROWSERSLIST_QUERY = browserslist("defaults");
+const BROWSERSLIST_QUERY = browserslist("baseline widely available");
 const BROWSER_TARGETS = browserslistToTargets(BROWSERSLIST_QUERY);
 const ESBUILD_TARGETS = browserslistToEsbuildTargets(BROWSERSLIST_QUERY);
+
+console.log(BROWSERSLIST_QUERY.toString());
 
 export interface BuildResult {
   file: string;
@@ -53,15 +58,23 @@ export interface CompilationDetails {
 
 export const tree = new Map<string, string>();
 
-export async function inlineCritical(criticalDir = "assets/built", templatePath = "default-template.hbs") {
+export async function inlineCritical(
+  criticalDir = "assets/built",
+  templatePath = "default-template.hbs",
+) {
   try {
     let defaultTemplate = await readFile(templatePath, "utf8");
 
     // Always process the default index.css path
     let cssContent = "";
     try {
-      cssContent = await readFile(`${criticalDir}/css/critical/index.css`, "utf8");
-    } catch (e) { /* ignore */ }
+      cssContent = await readFile(
+        `${criticalDir}/css/critical/index.css`,
+        "utf8",
+      );
+    } catch (e) {
+      /* ignore */
+    }
 
     if (cssContent) {
       const cssTag = `<link rel="stylesheet" href="{{asset "built/css/critical/index.css"}}">`;
@@ -82,8 +95,13 @@ export async function inlineCritical(criticalDir = "assets/built", templatePath 
 
       let dirCss = "";
       try {
-        dirCss = await readFile(`${criticalDir}/css/critical/${dir}/index.css`, "utf8");
-      } catch (e) { /* ignore */ }
+        dirCss = await readFile(
+          `${criticalDir}/css/critical/${dir}/index.css`,
+          "utf8",
+        );
+      } catch (e) {
+        /* ignore */
+      }
 
       if (dirCss) {
         const cssTag = `<link rel="stylesheet" href="{{asset "built/css/critical/${dir}/index.css"}}">`;
@@ -103,32 +121,46 @@ export async function inlineCritical(criticalDir = "assets/built", templatePath 
   }
 }
 
-async function postProcessCSS(cssFiles: string[], isWatch: boolean): Promise<void> {
-  await Promise.all(cssFiles.map(async (file) => {
-    try {
-      const code = await readFile(file);
-      const result = transform({
-        filename: file,
-        code,
-        minify: !isWatch,
-        sourceMap: true,
-        targets: BROWSER_TARGETS,
-        include: Features.Nesting | Features.MediaQueries | Features.Colors | Features.VendorPrefixes,
-      });
+async function postProcessCSS(
+  cssFiles: string[],
+  isWatch: boolean,
+): Promise<void> {
+  await Promise.all(
+    cssFiles.map(async (file) => {
+      try {
+        const code = await readFile(file);
+        const result = transform({
+          filename: file,
+          code,
+          minify: !isWatch,
+          sourceMap: true,
+          targets: BROWSER_TARGETS,
+          include:
+            Features.Nesting |
+            Features.MediaQueries |
+            Features.Colors |
+            Features.VendorPrefixes,
+        });
 
-      await writeFile(file, result.code);
+        await writeFile(file, result.code);
 
-      if (result.map) {
-        const mapContent = result.map instanceof Uint8Array
-          ? Buffer.from(result.map)
-          : JSON.stringify(typeof result.map === "object" ? result.map : {});
-        await writeFile(file + ".map", mapContent);
+        if (result.map) {
+          const mapContent =
+            result.map instanceof Uint8Array
+              ? Buffer.from(result.map)
+              : JSON.stringify(
+                  typeof result.map === "object" ? result.map : {},
+                );
+          await writeFile(file + ".map", mapContent);
+        }
+      } catch (e) {
+        console.error(chalk.red("✘  CSS post-processing failed for"), file);
+        logToFile(
+          `CSS post-processing failed for ${file}: ${e instanceof Error ? e.message : String(e)}`,
+        );
       }
-    } catch (e) {
-      console.error(chalk.red("✘  CSS post-processing failed for"), file);
-      logToFile(`CSS post-processing failed for ${file}: ${e instanceof Error ? e.message : String(e)}`);
-    }
-  }));
+    }),
+  );
 }
 
 function getCriticalDirs(criticalDir: string): string[] {
@@ -137,17 +169,19 @@ function getCriticalDirs(criticalDir: string): string[] {
 
   try {
     entries = readdirSync(cssDir, { withFileTypes: true })
-      .filter(d => d.isDirectory())
-      .map(d => d.name);
+      .filter((d) => d.isDirectory())
+      .map((d) => d.name);
   } catch {
     return [];
   }
 
   // Deduplicate with js dir entries
   try {
-    const jsEntries = readdirSync(`${criticalDir}/js/critical`, { withFileTypes: true })
-      .filter(d => d.isDirectory())
-      .map(d => d.name);
+    const jsEntries = readdirSync(`${criticalDir}/js/critical`, {
+      withFileTypes: true,
+    })
+      .filter((d) => d.isDirectory())
+      .map((d) => d.name);
     return [...new Set([...entries, ...jsEntries])];
   } catch {
     return entries;
