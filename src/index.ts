@@ -7,7 +7,6 @@ import { argv } from "node:process";
 import { getPortPromise } from "portfinder";
 import open from "open";
 import type { Stats } from "node:fs";
-
 import { findEntryPoints, loadConfig, optimizeImages } from "./utils.js";
 import { writeAssets } from "./builder.js";
 import { initWs, printCompilationDetails } from "./server.js";
@@ -22,6 +21,27 @@ import {
   deployTheme,
   runDoctor,
 } from "./cli.js";
+
+function ignored(path: string, stats?: Stats): boolean {
+  if (path !== "." && /(^|[/\\])\../.test(path)) return true;
+  const lowerPath = path.toLowerCase();
+  if (
+    lowerPath.includes("node_modules") ||
+    lowerPath.includes("dist") ||
+    lowerPath.includes("assets/built") ||
+    lowerPath.includes("assets\\built") ||
+    lowerPath.includes("postcss.config.js")
+  ) {
+    return true;
+  }
+  if (stats?.isFile()) {
+    return !/\.(hbs|css|js|ts|jpg|jpeg|png|webp|avif|svg)$/i.test(path);
+  }
+  if (/\.[^/\\]+$/.test(path)) {
+    return !/\.(hbs|css|js|ts)$/i.test(path);
+  }
+  return false;
+}
 
 async function init() {
   const config = await loadConfig();
@@ -128,31 +148,6 @@ async function init() {
     }
 
     const url = await parseGhostCliOutput();
-    const ignored = (path: string, stats?: Stats) => {
-      if (path !== "." && /(^|[/\\])\../.test(path)) return true;
-
-      const lowerPath = path.toLowerCase();
-
-      if (
-        lowerPath.includes("node_modules") ||
-        lowerPath.includes("dist") ||
-        lowerPath.includes("assets/built") ||
-        lowerPath.includes("assets\\built") ||
-        lowerPath.includes("postcss.config.js")
-      ) {
-        return true;
-      }
-
-      if (stats?.isFile()) {
-        return !/\.(hbs|css|js|ts|jpg|jpeg|png|webp|avif|svg)$/i.test(path);
-      }
-
-      if (/\.[^/\\]+$/.test(path)) {
-        return !/\.(hbs|css|js|ts)$/i.test(path);
-      }
-
-      return false;
-    };
 
     const watcher = chokidar.watch(".", {
       ignored,

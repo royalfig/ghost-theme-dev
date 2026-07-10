@@ -153,6 +153,23 @@ describe("initWs", () => {
     vi.useRealTimers();
   });
 
+  function getWatcherCallback(mockWatcher: any) {
+    return mockWatcher.on.mock.calls.find((call: any[]) => call[0] === "all")?.[1];
+  }
+
+  function getConnectionCallback(mockWsServer: any) {
+    return mockWsServer.on.mock.calls.find((call: any[]) => call[0] === "connection")?.[1];
+  }
+
+  async function setupWsConnection(mockWsServer: any, mockWatcher: any) {
+    await initWs({ results: [], time: 0 }, 3000, "http://localhost:3000", mockWatcher as any, {});
+    const connectionCallback = getConnectionCallback(mockWsServer);
+    const mockWs = { on: vi.fn(), send: vi.fn() };
+    connectionCallback(mockWs);
+    const messageCallback = mockWs.on.mock.calls.find((call: any[]) => call[0] === "message")?.[1];
+    return { mockWs, messageCallback };
+  }
+
   function setupInitWs() {
     vi.useFakeTimers();
     vi.spyOn(console, "log").mockImplementation(() => {});
@@ -204,19 +221,9 @@ describe("initWs", () => {
 
   it("should rebuild on JS/TS file changes", async () => {
     const { mockWatcher } = setupInitWs();
+    await initWs({ results: [], time: 0 }, 3000, "http://localhost:3000", mockWatcher as any, {});
 
-    await initWs(
-      { results: [], time: 0 },
-      3000,
-      "http://localhost:3000",
-      mockWatcher as any,
-      {},
-    );
-
-    const watcherCallback = mockWatcher.on.mock.calls.find(
-      (call: any[]) => call[0] === "all",
-    )?.[1];
-
+    const watcherCallback = getWatcherCallback(mockWatcher);
     await watcherCallback("change", "assets/js/index.ts");
     await vi.runAllTimersAsync();
     expect(writeAssets).toHaveBeenCalled();
@@ -224,19 +231,9 @@ describe("initWs", () => {
 
   it("should rebuild on CSS file changes", async () => {
     const { mockWatcher } = setupInitWs();
+    await initWs({ results: [], time: 0 }, 3000, "http://localhost:3000", mockWatcher as any, {});
 
-    await initWs(
-      { results: [], time: 0 },
-      3000,
-      "http://localhost:3000",
-      mockWatcher as any,
-      {},
-    );
-
-    const watcherCallback = mockWatcher.on.mock.calls.find(
-      (call: any[]) => call[0] === "all",
-    )?.[1];
-
+    const watcherCallback = getWatcherCallback(mockWatcher);
     await watcherCallback("change", "assets/css/index.css");
     await vi.runAllTimersAsync();
     expect(writeAssets).toHaveBeenCalled();
@@ -244,38 +241,18 @@ describe("initWs", () => {
 
   it("should skip build artifacts", async () => {
     const { mockWatcher } = setupInitWs();
+    await initWs({ results: [], time: 0 }, 3000, "http://localhost:3000", mockWatcher as any, {});
 
-    await initWs(
-      { results: [], time: 0 },
-      3000,
-      "http://localhost:3000",
-      mockWatcher as any,
-      {},
-    );
-
-    const watcherCallback = mockWatcher.on.mock.calls.find(
-      (call: any[]) => call[0] === "all",
-    )?.[1];
-
+    const watcherCallback = getWatcherCallback(mockWatcher);
     await watcherCallback("change", "assets/built/js/index.js.map");
     expect(writeAssets).not.toHaveBeenCalled();
   });
 
   it("should handle WebSocket connection", async () => {
     const { mockWsServer, mockWatcher } = setupInitWs();
+    await initWs({ results: [], time: 0 }, 3000, "http://localhost:3000", mockWatcher as any, {});
 
-    await initWs(
-      { results: [], time: 0 },
-      3000,
-      "http://localhost:3000",
-      mockWatcher as any,
-      {},
-    );
-
-    const connectionCallback = mockWsServer.on.mock.calls.find(
-      (call: any[]) => call[0] === "connection",
-    )?.[1];
-
+    const connectionCallback = getConnectionCallback(mockWsServer);
     const mockWs = { on: vi.fn(), send: vi.fn() };
     connectionCallback(mockWs);
 
@@ -284,58 +261,18 @@ describe("initWs", () => {
 
   it("should handle valid WebSocket messages", async () => {
     const { mockWsServer, mockWatcher } = setupInitWs();
-
-    await initWs(
-      { results: [], time: 0 },
-      3000,
-      "http://localhost:3000",
-      mockWatcher as any,
-      {},
-    );
-
-    const connectionCallback = mockWsServer.on.mock.calls.find(
-      (call: any[]) => call[0] === "connection",
-    )?.[1];
-
-    const mockWs = { on: vi.fn(), send: vi.fn() };
-    connectionCallback(mockWs);
-
-    const messageCallback = mockWs.on.mock.calls.find(
-      (call: any[]) => call[0] === "message",
-    )?.[1];
+    const { messageCallback } = await setupWsConnection(mockWsServer, mockWatcher);
 
     expect(() =>
       messageCallback(
-        JSON.stringify({
-          url: "http://localhost:3000",
-          title: "Test",
-          version: "3.0.0",
-        }),
+        JSON.stringify({ url: "http://localhost:3000", title: "Test", version: "3.0.0" }),
       ),
     ).not.toThrow();
   });
 
   it("should handle malformed WebSocket messages gracefully", async () => {
     const { mockWsServer, mockWatcher } = setupInitWs();
-
-    await initWs(
-      { results: [], time: 0 },
-      3000,
-      "http://localhost:3000",
-      mockWatcher as any,
-      {},
-    );
-
-    const connectionCallback = mockWsServer.on.mock.calls.find(
-      (call: any[]) => call[0] === "connection",
-    )?.[1];
-
-    const mockWs = { on: vi.fn(), send: vi.fn() };
-    connectionCallback(mockWs);
-
-    const messageCallback = mockWs.on.mock.calls.find(
-      (call: any[]) => call[0] === "message",
-    )?.[1];
+    const { messageCallback } = await setupWsConnection(mockWsServer, mockWatcher);
 
     expect(() => messageCallback("invalid json")).not.toThrow();
   });

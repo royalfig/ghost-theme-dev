@@ -380,6 +380,22 @@ describe("findFilesRecursively", () => {
   });
 });
 
+function setupSharpMock() {
+  const toFileMock = { toFile: vi.fn().mockResolvedValue(undefined) };
+  const resizeMock = {
+    webp: vi.fn().mockReturnValue(toFileMock),
+    avif: vi.fn().mockReturnValue(toFileMock),
+    jpeg: vi.fn().mockReturnValue(toFileMock),
+    jpg: vi.fn().mockReturnValue(toFileMock),
+    png: vi.fn().mockReturnValue(toFileMock),
+  };
+  const mockSharp = {
+    rotate: vi.fn().mockReturnValue({ resize: vi.fn().mockReturnValue(resizeMock) }),
+  };
+  (sharp as any).mockImplementation(() => mockSharp);
+  return { toFileMock, mockSharp };
+}
+
 describe("optimizeImages", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -400,23 +416,7 @@ describe("optimizeImages", () => {
     vi.mocked(existsSync).mockReturnValue(true);
     vi.mocked(readFileSync).mockReturnValue("{}");
 
-    const toFileMock = {
-      toFile: vi.fn().mockResolvedValue(undefined),
-    };
-    const resizeMock = {
-      webp: vi.fn().mockReturnValue(toFileMock),
-      avif: vi.fn().mockReturnValue(toFileMock),
-      jpeg: vi.fn().mockReturnValue(toFileMock),
-      jpg: vi.fn().mockReturnValue(toFileMock),
-      png: vi.fn().mockReturnValue(toFileMock),
-    };
-    const rotateMock = {
-      resize: vi.fn().mockReturnValue(resizeMock),
-    };
-    const mockSharp = {
-      rotate: vi.fn().mockReturnValue(rotateMock),
-    };
-    (sharp as any).mockImplementation(() => mockSharp);
+    const { toFileMock } = setupSharpMock();
 
     await optimizeImages("/test/path");
 
@@ -439,23 +439,7 @@ describe("optimizeImages", () => {
     vi.mocked(existsSync).mockReturnValue(true);
     vi.mocked(readFileSync).mockReturnValue(pkgContent);
 
-    const toFileMock = {
-      toFile: vi.fn().mockResolvedValue(undefined),
-    };
-    const resizeMock = {
-      webp: vi.fn().mockReturnValue(toFileMock),
-      avif: vi.fn().mockReturnValue(toFileMock),
-      jpeg: vi.fn().mockReturnValue(toFileMock),
-      jpg: vi.fn().mockReturnValue(toFileMock),
-      png: vi.fn().mockReturnValue(toFileMock),
-    };
-    const rotateMock = {
-      resize: vi.fn().mockReturnValue(resizeMock),
-    };
-    const mockSharp = {
-      rotate: vi.fn().mockReturnValue(rotateMock),
-    };
-    (sharp as any).mockImplementation(() => mockSharp);
+    const { toFileMock } = setupSharpMock();
 
     await optimizeImages("/test/path");
 
@@ -468,29 +452,9 @@ describe("optimizeImages", () => {
     vi.mocked(stat).mockResolvedValue({ isDirectory: () => false } as any);
     vi.mocked(existsSync).mockReturnValue(true);
     vi.mocked(readFileSync).mockReturnValue("{}");
+    vi.mocked(lstatSync).mockReturnValue({ mtimeMs: 1000 } as any);
 
-    const mockLstat = {
-      mtimeMs: 1000,
-    };
-    vi.mocked(lstatSync).mockReturnValue(mockLstat as any);
-
-    const toFileMock = {
-      toFile: vi.fn().mockResolvedValue(undefined),
-    };
-    const resizeMock = {
-      webp: vi.fn().mockReturnValue(toFileMock),
-      avif: vi.fn().mockReturnValue(toFileMock),
-      jpeg: vi.fn().mockReturnValue(toFileMock),
-      jpg: vi.fn().mockReturnValue(toFileMock),
-      png: vi.fn().mockReturnValue(toFileMock),
-    };
-    const rotateMock = {
-      resize: vi.fn().mockReturnValue(resizeMock),
-    };
-    const mockSharp = {
-      rotate: vi.fn().mockReturnValue(rotateMock),
-    };
-    (sharp as any).mockImplementation(() => mockSharp);
+    const { toFileMock } = setupSharpMock();
 
     await optimizeImages("/test/path");
 
@@ -498,7 +462,7 @@ describe("optimizeImages", () => {
     expect(toFileMock.toFile).not.toHaveBeenCalled();
   });
 
-it("should process all files when force is true", async () => {
+  it("should process all files when force is true", async () => {
     const pkgContent = JSON.stringify({
       config: {
         image_sizes: {
@@ -509,32 +473,11 @@ it("should process all files when force is true", async () => {
 
     vi.mocked(readdir).mockResolvedValue(["image.jpg"] as any);
     vi.mocked(stat).mockResolvedValue({ isDirectory: () => false } as any);
-
     vi.mocked(existsSync).mockReturnValue(true);
     vi.mocked(readFileSync).mockReturnValue(pkgContent);
+    vi.mocked(lstatSync).mockReturnValue({ mtimeMs: 1000 } as any);
 
-    const mockLstat = {
-      mtimeMs: 1000,
-    };
-    vi.mocked(lstatSync).mockReturnValue(mockLstat as any);
-
-    const toFileMock = {
-      toFile: vi.fn().mockResolvedValue(undefined),
-    };
-    const resizeMock = {
-      webp: vi.fn().mockReturnValue(toFileMock),
-      avif: vi.fn().mockReturnValue(toFileMock),
-      jpeg: vi.fn().mockReturnValue(toFileMock),
-      jpg: vi.fn().mockReturnValue(toFileMock),
-      png: vi.fn().mockReturnValue(toFileMock),
-    };
-    const rotateMock = {
-      resize: vi.fn().mockReturnValue(resizeMock),
-    };
-    const mockSharp = {
-      rotate: vi.fn().mockReturnValue(rotateMock),
-    };
-    (sharp as any).mockImplementation(() => mockSharp);
+    const { toFileMock } = setupSharpMock();
 
     await optimizeImages("/test/path", true);
 

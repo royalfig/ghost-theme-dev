@@ -6,8 +6,6 @@ import { existsSync, unlinkSync, readFileSync, lstatSync } from "node:fs";
 import chalk from "chalk";
 import sharp from "sharp";
 
-export { spawnSync };
-
 export interface GtbConfig {
     esbuild?: any;
 }
@@ -157,50 +155,51 @@ function isEntryPoint(filename: string, exts: string[]): boolean {
   return exts.some((ext) => filename.endsWith(ext)) && (filename.includes("index") || filename.includes("critical"));
 }
 
-export async function findEntryPoints(entryPointPath: string, exts: string[]): Promise<string[]> {
-  try {
-    const { readdir } = await import("node:fs/promises");
-    const { join } = await import("node:path");
-    const entryPoints: string[] = [];
-    const entries = await readdir(entryPointPath, { withFileTypes: true });
-
-    for (const entry of entries) {
-      if (entry.isDirectory()) {
-        if (entry.name === "built" || entry.name === "dist" || entry.name === "node_modules") continue;
-
-        const subDirPath = join(entryPointPath, entry.name);
-        try {
-          const subEntries = await readdir(subDirPath, { withFileTypes: true });
-          for (const subEntry of subEntries) {
-            if (!subEntry.isDirectory()) {
-              if (isEntryPoint(subEntry.name, exts)) {
-                entryPoints.push(join(subDirPath, subEntry.name));
-              }
-            } else {
-              // 2nd level: read files in sub-subdirectories
-              try {
-                const deepEntries = await readdir(join(subDirPath, subEntry.name), { withFileTypes: true });
-                for (const deepEntry of deepEntries) {
-                  if (!deepEntry.isDirectory()) {
-                    if (isEntryPoint(deepEntry.name, exts)) {
-                      entryPoints.push(join(subDirPath, subEntry.name, deepEntry.name));
-                    }
-                  }
-                }
-              } catch (e) { /* ignore */ }
+async function collectDeepEntries(subDirPath: string, subDirName: string, exts: string[]): Promise<string[]> {
+    const results: string[] = [];
+    try {
+        const deepEntries = await readdir(join(subDirPath, subDirName), { withFileTypes: true });
+        for (const deepEntry of deepEntries) {
+            if (!deepEntry.isDirectory() && isEntryPoint(deepEntry.name, exts)) {
+                results.push(join(subDirPath, subDirName, deepEntry.name));
             }
-          }
-        } catch (e) { /* ignore */ }
-      } else {
-        if (exts.some(ext => entry.name.endsWith(ext))) {
-          entryPoints.push(join(entryPointPath, entry.name));
         }
-      }
+    } catch { /* ignore */ }
+    return results;
+}
+
+async function collectSubDirEntries(subDirPath: string, exts: string[]): Promise<string[]> {
+    const results: string[] = [];
+    try {
+        const subEntries = await readdir(subDirPath, { withFileTypes: true });
+        for (const subEntry of subEntries) {
+            if (!subEntry.isDirectory()) {
+                if (isEntryPoint(subEntry.name, exts)) results.push(join(subDirPath, subEntry.name));
+            } else {
+                results.push(...await collectDeepEntries(subDirPath, subEntry.name, exts));
+            }
+        }
+    } catch { /* ignore */ }
+    return results;
+}
+
+export async function findEntryPoints(entryPointPath: string, exts: string[]): Promise<string[]> {
+    try {
+        const entryPoints: string[] = [];
+        const entries = await readdir(entryPointPath, { withFileTypes: true });
+
+        for (const entry of entries) {
+            if (entry.isDirectory()) {
+                if (entry.name === "built" || entry.name === "dist" || entry.name === "node_modules") continue;
+                entryPoints.push(...await collectSubDirEntries(join(entryPointPath, entry.name), exts));
+            } else if (exts.some(ext => entry.name.endsWith(ext))) {
+                entryPoints.push(join(entryPointPath, entry.name));
+            }
+        }
+        return entryPoints;
+    } catch {
+        return [];
     }
-    return entryPoints;
-  } catch (error) {
-    return [];
-  }
 }
 
 export async function loadEnv() {
@@ -222,7 +221,7 @@ export async function loadEnv() {
     }
 }
 
-export async function downloadFile(url: string, dest: string) {
+async function downloadFile(url: string, dest: string) {
     const dir = dirname(dest);
     if (!existsSync(dir)) {
         await mkdir(dir, { recursive: true });
@@ -243,83 +242,80 @@ export async function downloadFile(url: string, dest: string) {
     }
 }
 
+function loadImageSizes(folderPath: string): Record<string, { width: number }> {
+    const defaults: Record<string, { width: number }> = {
+        xxs: { width: 30 },
+        xs: { width: 100 },
+        s: { width: 300 },
+        m: { width: 600 },
+        l: { width: 1000 },
+        xl: { width: 2000 },
+    };
+    try {
+        const pkgContent = readFileSync(join(folderPath, "package.json"), "utf8");
+        const pkg = JSON.parse(pkgContent);
+        return pkg.config?.image_sizes ?? defaults;
+    } catch {
+        return defaults;
+    }
+}
+
+async function processImageFile(
+    file: string,
+    imgDir: string,
+    builtImgDir: string,
+    imageSizes: Record<string, { width: number }>,
+    force: boolean,
+): Promise<void> {
+    const relativePath = file.replace(imgDir, "");
+    const targetPath = join(builtImgDir, relativePath);
+    const targetDir = dirname(targetPath);
+
+    if (!existsSync(targetDir)) await mkdir(targetDir, { recursive: true });
+
+    if (file.toLowerCase().endsWith(".svg")) {
+        await copyFile(file, targetPath);
+        return;
+    }
+
+    const ext = extname(file);
+    const format = ext.slice(1) === "jpg" ? "jpeg" : ext.slice(1) as "webp" | "avif" | "jpeg" | "png";
+
+    for (const [, sizeConfig] of Object.entries(imageSizes)) {
+        const width = sizeConfig.width;
+        const basePath = targetPath.slice(0, -ext.length || undefined);
+        const originalOutputPath = `${basePath}-${width}${ext}`;
+        const webpOutputPath = `${basePath}-${width}.webp`;
+        const avifOutputPath = `${basePath}-${width}.avif`;
+
+        if (!force && await checkFileUptodate(file, [originalOutputPath, webpOutputPath, avifOutputPath])) {
+            continue;
+        }
+
+        await sharp(file).rotate().resize({ width, withoutEnlargement: true })[format]().toFile(originalOutputPath);
+
+        if (ext !== ".webp") {
+            await sharp(file).rotate().resize({ width, withoutEnlargement: true }).webp({ quality: 80 }).toFile(webpOutputPath);
+        }
+
+        if (ext !== ".avif") {
+            await sharp(file).rotate().resize({ width, withoutEnlargement: true }).avif({ quality: 80 }).toFile(avifOutputPath);
+        }
+    }
+}
+
 export async function optimizeImages(folderPath: string, force = false) {
     const imgDir = join(folderPath, "src/img");
     const builtImgDir = join(folderPath, "assets/built/img");
 
     if (!existsSync(imgDir)) return;
 
-    let imageSizes = {
-        xxs: { width: 30 },
-        xs: { width: 100 },
-        s: { width: 300 },
-        m: { width: 600 },
-        l: { width: 1000 },
-        xl: { width: 2000 }
-    };
-
-    try {
-        const pkgContent = readFileSync(join(folderPath, "package.json"), "utf8");
-        const pkg = JSON.parse(pkgContent);
-        if (pkg.config?.image_sizes) {
-            imageSizes = pkg.config.image_sizes;
-        }
-    } catch { }
-
+    const imageSizes = loadImageSizes(folderPath);
     const files = await findFilesRecursively(imgDir);
-    const imageFiles = files.filter((f) =>
-        /\.(jpg|jpeg|png|webp|avif|svg)$/i.test(f),
-    );
+    const imageFiles = files.filter((f) => /\.(jpg|jpeg|png|webp|avif|svg)$/i.test(f));
 
     for (const file of imageFiles) {
-        const relativePath = file.replace(imgDir, "");
-        let targetPath = join(builtImgDir, relativePath);
-
-        const targetDir = dirname(targetPath);
-
-        if (!existsSync(targetDir))
-            await mkdir(targetDir, { recursive: true });
-
-        if (file.toLowerCase().endsWith(".svg")) {
-            await copyFile(file, targetPath);
-        } else {
-            const ext = extname(file);
-            const format = ext.slice(1) === "jpg" ? "jpeg" : ext.slice(1) as "webp" | "avif" | "jpeg" | "png";
-            
-            for (const [sizeName, sizeConfig] of Object.entries(imageSizes)) {
-                const width = sizeConfig.width;
-                
-                const originalOutputPath = targetPath.slice(0, -ext.length || undefined) + `-${width}${ext}`;
-                const webpOutputPath = targetPath.slice(0, -ext.length || undefined) + `-${width}.webp`;
-                const avifOutputPath = targetPath.slice(0, -ext.length || undefined) + `-${width}.avif`;
-                
-                if (!force && await checkFileUptodate(file, [originalOutputPath, webpOutputPath, avifOutputPath])) {
-                    continue;
-                }
-
-                await sharp(file)
-                    .rotate()
-                    .resize({ width, withoutEnlargement: true })
-                    [format]()
-                    .toFile(originalOutputPath);
-                
-                if (ext !== ".webp") {
-                    await sharp(file)
-                        .rotate()
-                        .resize({ width, withoutEnlargement: true })
-                        .webp({ quality: 80 })
-                        .toFile(webpOutputPath);
-                }
-                
-                if (ext !== ".avif") {
-                    await sharp(file)
-                        .rotate()
-                        .resize({ width, withoutEnlargement: true })
-                        .avif({ quality: 80 })
-                        .toFile(avifOutputPath);
-                }
-            }
-        }
+        await processImageFile(file, imgDir, builtImgDir, imageSizes, force);
     }
 }
 

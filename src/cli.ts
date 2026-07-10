@@ -24,7 +24,6 @@ import {
   runCommand,
   hasCommand,
   checkNodeVersion,
-  downloadFile,
   findFilesRecursively,
   optimizeImages,
 } from "./utils.js";
@@ -336,6 +335,128 @@ export async function runDoctor() {
   }
 }
 
+async function readInstancesFromConfig(): Promise<{ name: string; location: string }[]> {
+  const ghostConfigPath = join(homedir(), ".ghost", "config");
+  if (!existsSync(ghostConfigPath)) return [];
+  try {
+    const configContent = await readFilePromise(ghostConfigPath, "utf8");
+    const config = JSON.parse(configContent);
+    if (!config.instances) return [];
+    return Object.entries(config.instances).map(
+      ([name, data]: [string, any]) => ({ name, location: data.cwd }),
+    );
+  } catch {
+    return [];
+  }
+}
+
+function readInstancesFromCli(ghostCmd: string): { name: string; location: string }[] {
+  const result = runCommand(`${ghostCmd} ls`, true);
+  const ansiRegex =
+    /[][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g;
+  const cleanResult = result ? result.replace(ansiRegex, "") : "";
+  const rows = cleanResult
+    ? cleanResult.split("\n").filter((row) => row.includes("│") && !row.includes("Name"))
+    : [];
+  return rows
+    .map((row) => {
+      const parts = row.split("│").map((p) => p.trim());
+      return { name: parts[1], location: parts[2] };
+    })
+    .filter((i) => i.name && i.location);
+}
+
+async function promptCreateLocalGhost(ghostCmd: string): Promise<{ name: string; location: string }[]> {
+  console.log(chalk.yellow("⬥"), " No local Ghost instances found.");
+  const setupLocal = await confirm({
+    message: "Would you like to set up a local Ghost installation in the parent directory?",
+    default: true,
+  });
+  if (!setupLocal) return [];
+
+  const folderName = await input({
+    message: "What should we name the Ghost directory?",
+    default: "ghost-local",
+  });
+  const parentDir = resolve(process.cwd(), "..");
+  const targetPath = join(parentDir, folderName);
+
+  if (existsSync(targetPath)) {
+    console.log(chalk.red("✘  Directory already exists:"), targetPath);
+    return [];
+  }
+
+  console.log(chalk.blue("⬥"), ` Creating directory: ${targetPath}`);
+  try {
+    await mkdirPromise(targetPath, { recursive: true });
+    console.log(chalk.blue("⬥"), ` Running ghost install local in ${targetPath}...`);
+    console.log(chalk.dim("┃"), " This may take a minute...");
+    execSync(`cd "${targetPath}" && ${ghostCmd} install local`, { stdio: "inherit" });
+    console.log(chalk.green("✔"), " Local Ghost installed!");
+    return [{ name: folderName, location: targetPath }];
+  } catch {
+    console.error(chalk.red("✘  Failed to setup local Ghost."));
+    return [];
+  }
+}
+
+async function applyThemeSymlink(
+  folderPath: string,
+  themeName: string,
+  resolvedLocation: string,
+): Promise<boolean> {
+  const themesPath = join(resolvedLocation, "content", "themes", themeName);
+  console.log(chalk.blue("⬥"), ` Linking theme to ${themesPath}...`);
+
+  try {
+    const stats = await lstatPromise(themesPath);
+    if (stats.isSymbolicLink()) {
+      const existingLink = await readlinkPromise(themesPath);
+      const absoluteExistingLink = resolve(dirname(themesPath), existingLink);
+      if (absoluteExistingLink === resolve(folderPath)) {
+        console.log(chalk.yellow("⬥"), " Already linked correctly.");
+        return true;
+      }
+      const replaceLink = await confirm({
+        message: `Already linked to ${existingLink}. Replace?`,
+        default: true,
+      });
+      if (!replaceLink) return false;
+      await unlinkPromise(themesPath);
+    } else if (stats.isDirectory()) {
+      const replaceDir = await confirm({
+        message: "Directory already exists and is not a link. Replace with link?",
+        default: false,
+      });
+      if (!replaceDir) return false;
+      await mkdirPromise(dirname(themesPath), { recursive: true });
+      const { rm } = await import("node:fs/promises");
+      await rm(themesPath, { recursive: true, force: true });
+    }
+  } catch (e: any) {
+    if (e.code !== "ENOENT") {
+      console.error(chalk.red(`✘  Error checking themes path: ${e.message}`));
+      return false;
+    }
+  }
+
+  try {
+    const { symlink } = await import("node:fs/promises");
+    await symlink(folderPath, themesPath, "dir");
+    console.log(chalk.green("⬥"), " Symlink created.");
+    return true;
+  } catch (symErr: any) {
+    console.error(chalk.red(`✘  Failed to create symlink: ${symErr.message}`));
+    if (process.platform === "win32") {
+      console.log(
+        chalk.yellow("┃"),
+        " Note: On Windows, symlinks may require Administrator privileges or Developer Mode.",
+      );
+    }
+    return false;
+  }
+}
+
 export async function symLinkTheme(): Promise<boolean> {
   checkNodeVersion();
   let ghostCmd = hasCommand("ghost") ? "ghost" : "npx -p ghost-cli ghost";
@@ -345,19 +466,14 @@ export async function symLinkTheme(): Promise<boolean> {
       message: "Would you like to install Ghost CLI globally now?",
       default: true,
     });
-
     if (installCli) {
       console.log(chalk.blue("⬥"), " Installing ghost-cli...");
       try {
         runCommand("npm install -g ghost-cli");
         console.log(chalk.green("✔"), " Ghost CLI installed successfully!");
-        if (hasCommand("ghost")) {
-          ghostCmd = "ghost";
-        }
-      } catch (e) {
-        console.error(
-          chalk.red("✘  Failed to install Ghost CLI. Fallback to npx."),
-        );
+        if (hasCommand("ghost")) ghostCmd = "ghost";
+      } catch {
+        console.error(chalk.red("✘  Failed to install Ghost CLI. Fallback to npx."));
       }
     } else {
       console.log(chalk.yellow("⬥"), " Skipping symlink.");
@@ -365,191 +481,42 @@ export async function symLinkTheme(): Promise<boolean> {
     }
   }
 
-  let instances: { name: string; location: string }[] = [];
-
-  // Try reading from ~/.ghost/config first
-  const ghostConfigPath = join(homedir(), ".ghost", "config");
-  if (existsSync(ghostConfigPath)) {
-    try {
-      const configContent = await readFilePromise(ghostConfigPath, "utf8");
-      const config = JSON.parse(configContent);
-      if (config.instances) {
-        instances = Object.entries(config.instances).map(
-          ([name, data]: [string, any]) => ({
-            name,
-            location: data.cwd,
-          }),
-        );
-      }
-    } catch (e) {
-      // Fallback to ghost ls if reading config fails
-    }
-  }
-
-  // Fallback to ghost ls if no instances found via config
+  let instances = await readInstancesFromConfig();
+  if (instances.length === 0) instances = readInstancesFromCli(ghostCmd);
   if (instances.length === 0) {
-    let result = runCommand(`${ghostCmd} ls`, true);
-    const ansiRegex =
-      /[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g;
-    const cleanResult = result ? result.replace(ansiRegex, "") : "";
-    let rows = cleanResult
-      ? cleanResult
-          .split("\n")
-          .filter((row) => row.includes("│") && !row.includes("Name"))
-      : [];
-
-    instances = rows
-      .map((row) => {
-        const parts = row.split("│").map((p) => p.trim());
-        return { name: parts[1], location: parts[2] };
-      })
-      .filter((i) => i.name && i.location);
-  }
-
-  if (instances.length === 0) {
-    console.log(chalk.yellow("⬥"), " No local Ghost instances found.");
-    const setupLocal = await confirm({
-      message:
-        "Would you like to set up a local Ghost installation in the parent directory?",
-      default: true,
-    });
-
-    if (setupLocal) {
-      const folderName = await input({
-        message: "What should we name the Ghost directory?",
-        default: "ghost-local",
-      });
-      const parentDir = resolve(process.cwd(), "..");
-      const targetPath = join(parentDir, folderName);
-
-      if (existsSync(targetPath)) {
-        console.log(chalk.red("✘  Directory already exists:"), targetPath);
-        return false;
-      } else {
-        console.log(chalk.blue("⬥"), ` Creating directory: ${targetPath}`);
-        try {
-          await mkdirPromise(targetPath, { recursive: true });
-          console.log(
-            chalk.blue("⬥"),
-            ` Running ghost install local in ${targetPath}...`,
-          );
-          console.log(chalk.dim("┃"), " This may take a minute...");
-          execSync(`cd "${targetPath}" && ${ghostCmd} install local`, {
-            stdio: "inherit",
-          });
-          console.log(chalk.green("✔"), " Local Ghost installed!");
-
-          // After installation, the config should exist, so we recursive call or just add it
-          const newLocation = targetPath;
-          instances = [{ name: folderName, location: newLocation }];
-        } catch (e) {
-          console.error(chalk.red("✘  Failed to setup local Ghost."));
-          return false;
-        }
-      }
-    } else {
-      return false;
-    }
+    instances = await promptCreateLocalGhost(ghostCmd);
+    if (instances.length === 0) return false;
   }
 
   let folderPath = process.cwd();
   let lastPath = "";
-  while (
-    folderPath !== lastPath &&
-    !existsSync(join(folderPath, "package.json"))
-  ) {
+  while (folderPath !== lastPath && !existsSync(join(folderPath, "package.json"))) {
     lastPath = folderPath;
     folderPath = dirname(folderPath);
   }
 
   if (!existsSync(join(folderPath, "package.json"))) {
-    console.log(
-      chalk.red(
-        "✘  No package.json found. Run this in a Ghost theme directory.",
-      ),
-    );
+    console.log(chalk.red("✘  No package.json found. Run this in a Ghost theme directory."));
     return false;
   }
 
   const themeName = basename(folderPath);
 
   try {
-    let targetInstance =
-      instances.length === 1
-        ? instances[0]
-        : await select({
-            message: "Link to which Ghost instance?",
-            choices: instances.map((i) => ({
-              name: `${i.name} (${i.location})`,
-              value: i,
-            })),
-          });
+    const targetInstance = instances.length === 1
+      ? instances[0]
+      : await select({
+          message: "Link to which Ghost instance?",
+          choices: instances.map((i) => ({
+            name: `${i.name} (${i.location})`,
+            value: i,
+          })),
+        });
 
     const resolvedLocation = targetInstance.location.replace(/^~/, homedir());
-    const themesPath = join(resolvedLocation, "content", "themes", themeName);
-    console.log(chalk.blue("⬥"), ` Linking theme to ${themesPath}...`);
-
-    try {
-      const stats = await lstatPromise(themesPath);
-      if (stats.isSymbolicLink()) {
-        const existingLink = await readlinkPromise(themesPath);
-        const absoluteExistingLink = resolve(dirname(themesPath), existingLink);
-        if (absoluteExistingLink === resolve(folderPath)) {
-          console.log(chalk.yellow("⬥"), " Already linked correctly.");
-          return true;
-        }
-
-        const replaceLink = await confirm({
-          message: `Already linked to ${existingLink}. Replace?`,
-          default: true,
-        });
-        if (replaceLink) {
-          await unlinkPromise(themesPath);
-        } else {
-          return false;
-        }
-      } else if (stats.isDirectory()) {
-        const replaceDir = await confirm({
-          message:
-            "Directory already exists and is not a link. Replace with link?",
-          default: false,
-        });
-        if (replaceDir) {
-          await mkdirPromise(dirname(themesPath), { recursive: true }); // Ensure parent exists
-          const { rm } = await import("node:fs/promises");
-          await rm(themesPath, { recursive: true, force: true });
-        } else {
-          return false;
-        }
-      }
-    } catch (e: any) {
-      if (e.code !== "ENOENT") {
-        console.error(chalk.red(`✘  Error checking themes path: ${e.message}`));
-        return false;
-      }
-      // If ENOENT, path doesn't exist, which is fine, we'll create the symlink
-    }
-
-    try {
-      const { symlink } = await import("node:fs/promises");
-      await symlink(folderPath, themesPath, "dir");
-      console.log(chalk.green("⬥"), " Symlink created.");
-      return true;
-    } catch (symErr: any) {
-      console.error(
-        chalk.red(`✘  Failed to create symlink: ${symErr.message}`),
-      );
-      if (process.platform === "win32") {
-        console.log(
-          chalk.yellow("┃"),
-          " Note: On Windows, symlinks may require Administrator privileges or Developer Mode.",
-        );
-      }
-      return false;
-    }
+    return await applyThemeSymlink(folderPath, themeName, resolvedLocation);
   } catch (e: any) {
     console.error(chalk.red(`✘  An unexpected error occurred: ${e.message}`));
     return false;
   }
 }
-

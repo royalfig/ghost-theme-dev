@@ -9,7 +9,7 @@ const VERSION: string = JSON.parse(
   readFileSync(new URL("../package.json", import.meta.url), "utf-8"),
 ).version;
 
-export interface SiteData {
+interface SiteData {
   url: string;
   title: string;
   version: string | null;

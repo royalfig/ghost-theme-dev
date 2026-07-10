@@ -319,6 +319,10 @@ describe("inlineCritical", () => {
   const CSS_TAG =
     '<link rel="stylesheet" href="{{asset "built/css/critical/index.css"}}">';
 
+  const mockReadFile = vi.mocked(readFile);
+  const mockWriteFile = vi.mocked(writeFile);
+  const mockReaddirSync = vi.mocked(readdirSync);
+
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -328,21 +332,11 @@ describe("inlineCritical", () => {
   });
 
   it("should inline critical CSS", async () => {
-    const mockReadFile = vi.mocked(readFile);
-    const mockWriteFile = vi.mocked(writeFile);
-    const mockReaddirSync = vi.mocked(readdirSync);
-
-    // Call order: 1=default-template.hbs, 2=css/critical/index.css, 3=getCriticalDirs css, 4=getCriticalDirs js
     mockReadFile
       .mockResolvedValueOnce(`<head>${CSS_TAG}</head>` as any)
       .mockResolvedValueOnce("/* critical css */" as any);
-
-    mockReaddirSync
-      .mockReturnValueOnce([] as any)
-      .mockReturnValueOnce([] as any);
-
+    mockReaddirSync.mockReturnValueOnce([] as any).mockReturnValueOnce([] as any);
     mockWriteFile.mockResolvedValue();
-
     vi.spyOn(console, "log").mockImplementation(() => {});
 
     await inlineCritical();
@@ -354,20 +348,11 @@ describe("inlineCritical", () => {
   });
 
   it("should not inline if tags not found", async () => {
-    const mockReadFile = vi.mocked(readFile);
-    const mockWriteFile = vi.mocked(writeFile);
-    const mockReaddirSync = vi.mocked(readdirSync);
-
     mockReadFile
       .mockResolvedValueOnce("no tags here" as any)
       .mockRejectedValueOnce(new Error("Not found"));
-
-    mockReaddirSync
-      .mockReturnValueOnce([] as any)
-      .mockReturnValueOnce([] as any);
-
+    mockReaddirSync.mockReturnValueOnce([] as any).mockReturnValueOnce([] as any);
     mockWriteFile.mockResolvedValue();
-
     vi.spyOn(console, "log").mockImplementation(() => {});
 
     await inlineCritical();
@@ -379,25 +364,15 @@ describe("inlineCritical", () => {
   });
 
   it("should handle missing critical files", async () => {
-    const mockReadFile = vi.mocked(readFile);
-    const mockWriteFile = vi.mocked(writeFile);
-    const mockReaddirSync = vi.mocked(readdirSync);
-
     mockReadFile
       .mockResolvedValueOnce(`<head>${CSS_TAG}</head>` as any)
       .mockRejectedValueOnce(new Error("Not found"));
-
-    mockReaddirSync
-      .mockReturnValueOnce([] as any)
-      .mockReturnValueOnce([] as any);
-
+    mockReaddirSync.mockReturnValueOnce([] as any).mockReturnValueOnce([] as any);
     mockWriteFile.mockResolvedValue();
-
     vi.spyOn(console, "log").mockImplementation(() => {});
 
     await inlineCritical();
 
-    // No CSS content, template unchanged (tags remain)
     expect(mockWriteFile).toHaveBeenCalledWith(
       "default.hbs",
       expect.stringContaining(CSS_TAG),
@@ -405,13 +380,8 @@ describe("inlineCritical", () => {
   });
 
   it("should handle write errors gracefully", async () => {
-    const mockReadFile = vi.mocked(readFile);
-    const mockWriteFile = vi.mocked(writeFile);
-    const mockReaddirSync = vi.mocked(readdirSync);
-
     mockReadFile.mockResolvedValueOnce("test content" as any);
     mockWriteFile.mockRejectedValue(new Error("Write failed"));
-
     vi.spyOn(console, "log").mockImplementation(() => {});
     vi.spyOn(console, "error").mockImplementation(() => {});
 
@@ -447,10 +417,23 @@ describe("inlineCritical - multiple templates", () => {
   const HOME_CSS_TAG =
     '<link rel="stylesheet" href="{{asset "built/css/critical/home/index.css"}}">';
 
+  const mockReadFile = vi.mocked(readFile);
+  const mockWriteFile = vi.mocked(writeFile);
+  const mockReaddirSync = vi.mocked(readdirSync);
+
+  const INDEX_HOME_DIRS = [
+    { name: "index", isDirectory: () => true },
+    { name: "home", isDirectory: () => true },
+  ];
+
+  function setupIndexHomeDirs() {
+    mockReaddirSync
+      .mockReturnValueOnce(INDEX_HOME_DIRS as any)
+      .mockReturnValueOnce(INDEX_HOME_DIRS as any);
+  }
+
   beforeEach(() => {
     vi.clearAllMocks();
-    // Reset readdirSync mock
-    const mockReaddirSync = vi.mocked(readdirSync);
     mockReaddirSync.mockReset();
     mockReaddirSync.mockReturnValue([]);
   });
@@ -460,29 +443,11 @@ describe("inlineCritical - multiple templates", () => {
   });
 
   it("should inline CSS for all critical directories", async () => {
-    const mockReadFile = vi.mocked(readFile);
-    const mockWriteFile = vi.mocked(writeFile);
-    const mockReaddirSync = vi.mocked(readdirSync);
-
-    // Call order:
-    // 1=default-template.hbs, 2=css/critical/index.css, 3=getCriticalDirs css, 4=getCriticalDirs js
-    // then for home dir: read css/critical/home/index.css
     mockReadFile
-      .mockResolvedValueOnce(
-        `<head>${CSS_TAG}${HOME_CSS_TAG}</head>` as any,
-      )
+      .mockResolvedValueOnce(`<head>${CSS_TAG}${HOME_CSS_TAG}</head>` as any)
       .mockResolvedValueOnce("/* default css */" as any)
       .mockResolvedValueOnce("/* home css */" as any);
-
-    mockReaddirSync
-      .mockReturnValueOnce([
-        { name: "index", isDirectory: () => true },
-        { name: "home", isDirectory: () => true },
-      ] as any)
-      .mockReturnValueOnce([
-        { name: "index", isDirectory: () => true },
-        { name: "home", isDirectory: () => true },
-      ] as any);
+    setupIndexHomeDirs();
 
     await inlineCritical();
 
@@ -497,32 +462,13 @@ describe("inlineCritical - multiple templates", () => {
   });
 
   it("should skip directories without CSS files", async () => {
-    const mockReadFile = vi.mocked(readFile);
-    const mockWriteFile = vi.mocked(writeFile);
-    const mockReaddirSync = vi.mocked(readdirSync);
-
-    // Call order:
-    // 1=default-template.hbs, 2=css/critical/index.css, 3=getCriticalDirs css, 4=getCriticalDirs js
-    // then for home dir: try to read its CSS (fails)
     mockReadFile
-      .mockResolvedValueOnce(
-        `<head>${CSS_TAG}${HOME_CSS_TAG}</head>` as any,
-      )
+      .mockResolvedValueOnce(`<head>${CSS_TAG}${HOME_CSS_TAG}</head>` as any)
       .mockRejectedValueOnce(new Error("ENOENT"));
-
-    mockReaddirSync
-      .mockReturnValueOnce([
-        { name: "index", isDirectory: () => true },
-        { name: "home", isDirectory: () => true },
-      ] as any)
-      .mockReturnValueOnce([
-        { name: "index", isDirectory: () => true },
-        { name: "home", isDirectory: () => true },
-      ] as any);
+    setupIndexHomeDirs();
 
     await inlineCritical();
 
-    // index.css didn't load, so no inlining happened
     expect(mockWriteFile).toHaveBeenCalledWith(
       "default.hbs",
       expect.stringContaining(CSS_TAG),
@@ -530,29 +476,14 @@ describe("inlineCritical - multiple templates", () => {
   });
 
   it("should skip tags not found in template", async () => {
-    const mockReadFile = vi.mocked(readFile);
-    const mockWriteFile = vi.mocked(writeFile);
-    const mockReaddirSync = vi.mocked(readdirSync);
-
-    // Template has home tag but no index tag
     mockReadFile
       .mockResolvedValueOnce(`<head>${HOME_CSS_TAG}</head>` as any)
       .mockResolvedValueOnce("/* default css */" as any)
       .mockResolvedValueOnce("/* home css */" as any);
-
-    mockReaddirSync
-      .mockReturnValueOnce([
-        { name: "index", isDirectory: () => true },
-        { name: "home", isDirectory: () => true },
-      ] as any)
-      .mockReturnValueOnce([
-        { name: "index", isDirectory: () => true },
-        { name: "home", isDirectory: () => true },
-      ] as any);
+    setupIndexHomeDirs();
 
     await inlineCritical();
 
-    // home tag replaced, index tag never existed in template so remains untouched
     expect(mockWriteFile).toHaveBeenCalledWith(
       "default.hbs",
       expect.stringContaining("<style>/* home css */</style>"),
@@ -564,17 +495,10 @@ describe("inlineCritical - multiple templates", () => {
   });
 
   it("should handle no critical directories found", async () => {
-    const mockReadFile = vi.mocked(readFile);
-    const mockWriteFile = vi.mocked(writeFile);
-    const mockReaddirSync = vi.mocked(readdirSync);
-
     mockReadFile
       .mockResolvedValueOnce(`<head>${CSS_TAG}</head>` as any)
       .mockResolvedValueOnce("/* default css */" as any);
-
-    mockReaddirSync
-      .mockReturnValueOnce([] as any)
-      .mockReturnValueOnce([] as any);
+    mockReaddirSync.mockReturnValueOnce([] as any).mockReturnValueOnce([] as any);
 
     await inlineCritical();
 
