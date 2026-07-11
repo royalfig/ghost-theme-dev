@@ -53,14 +53,14 @@ vi.mock("gscan", () => ({
   },
 }));
 
+let currentZipArchiveMock: any = null;
+
 vi.mock("archiver", () => {
-  const archive = {
-    pipe: vi.fn(),
-    glob: vi.fn(),
-    finalize: vi.fn().mockResolvedValue(undefined),
-    pointer: vi.fn().mockReturnValue(1024),
+  return {
+    ZipArchive: vi.fn().mockImplementation(class {
+      constructor() { return currentZipArchiveMock; }
+    } as any),
   };
-  return { default: vi.fn().mockReturnValue(archive) };
 });
 
 vi.mock("sharp", () => ({
@@ -212,13 +212,12 @@ describe("CLI Commands", () => {
       } as any);
 
       // Re-setup archiver mock (cleared by vi.clearAllMocks)
-      const archiver = (await import("archiver")).default;
-      vi.mocked(archiver).mockReturnValue({
+      currentZipArchiveMock = {
         pipe: vi.fn(),
         glob: vi.fn(),
         finalize: vi.fn().mockResolvedValue(undefined),
         pointer: vi.fn().mockReturnValue(1024),
-      } as any);
+      };
 
       const result = await zipTheme();
       expect(result).toContain(".zip");

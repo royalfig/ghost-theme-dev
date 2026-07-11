@@ -8,13 +8,17 @@ vi.mock("node:fs", () => ({
   readFileSync: vi.fn(() => JSON.stringify({ version: "3.0.0" })),
 }));
 
+let currentMockWsServer: any = null;
+
 vi.mock("ws", () => {
   const MockWebSocket = vi.fn() as any;
   MockWebSocket.OPEN = 1;
   return {
     default: MockWebSocket,
     WebSocket: MockWebSocket,
-    WebSocketServer: vi.fn(),
+    WebSocketServer: vi.fn().mockImplementation(class {
+      constructor() { return currentMockWsServer; }
+    } as any),
   };
 });
 
@@ -179,7 +183,7 @@ describe("initWs", () => {
       on: vi.fn(),
       clients: new Set(),
     };
-    vi.mocked(WebSocketServer).mockReturnValue(mockWsServer as any);
+    currentMockWsServer = mockWsServer;
     vi.mocked(writeAssets).mockResolvedValue({ results: [], time: 0 });
 
     const mockWatcher = { on: vi.fn() };

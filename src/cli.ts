@@ -16,7 +16,6 @@ import {
 } from "node:fs/promises";
 import { join, dirname, basename, resolve, extname } from "node:path";
 import gscan from "gscan";
-import archiver from "archiver";
 import chalk from "chalk";
 import GhostAdminApi from "@tryghost/admin-api";
 
@@ -250,7 +249,7 @@ export async function zipTheme() {
   }
 
   const output = createWriteStream(join(distDir, zipName));
-  const archive = archiver("zip", { zlib: { level: 9 } });
+  const archive = new (await import("archiver")).ZipArchive({ zlib: { level: 9 } });
 
   output.on("close", () => {
     console.log(
