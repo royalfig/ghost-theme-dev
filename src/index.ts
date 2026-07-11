@@ -35,7 +35,7 @@ function ignored(path: string, stats?: Stats): boolean {
     return true;
   }
   if (stats?.isFile()) {
-    return !/\.(hbs|css|js|ts|jpg|jpeg|png|webp|avif|svg)$/i.test(path);
+    return !/\.(hbs|css|js|ts|jpg|jpeg|png|webp|avif|svg|woff|woff2|ttf|otf)$/i.test(path);
   }
   if (/\.[^/\\]+$/.test(path)) {
     return !/\.(hbs|css|js|ts)$/i.test(path);

@@ -261,7 +261,7 @@ export async function zipTheme() {
 
   archive.pipe(output);
   archive.glob("**/*.hbs", { ignore: ["node_modules/**"] });
-  archive.glob("assets/built/**");
+  archive.glob("assets/**");
   archive.glob("package.json");
   archive.glob("routes.yaml");
   archive.glob("partials/**");
