@@ -22,6 +22,17 @@ export function logToFile(message: any) {
     appendFileSync(logPath, `[${timestamp}] ${strippedMessage}\n`);
 }
 
+export function clearLogFile() {
+    const logPath = join(process.cwd(), "gtb-debug.log");
+    if (existsSync(logPath)) {
+        try {
+            unlinkSync(logPath);
+        } catch (e) {
+            // ignore
+        }
+    }
+}
+
 export async function loadConfig(): Promise<GtbConfig> {
     const cwd = process.cwd();
     await loadEnv();

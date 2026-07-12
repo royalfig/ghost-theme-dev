@@ -7,7 +7,7 @@ import { argv } from "node:process";
 import { getPortPromise } from "portfinder";
 import open from "open";
 import type { Stats } from "node:fs";
-import { findEntryPoints, loadConfig, optimizeImages } from "./utils.js";
+import { findEntryPoints, loadConfig, optimizeImages, clearLogFile } from "./utils.js";
 import { writeAssets } from "./builder.js";
 import { initWs, printCompilationDetails } from "./server.js";
 import {
@@ -44,6 +44,15 @@ function ignored(path: string, stats?: Stats): boolean {
 }
 
 async function init() {
+  clearLogFile();
+
+  const handleExit = () => {
+    clearLogFile();
+    process.exit(0);
+  };
+  process.on("SIGINT", handleExit);
+  process.on("SIGTERM", handleExit);
+
   const config = await loadConfig();
   const command = argv[2];
 
