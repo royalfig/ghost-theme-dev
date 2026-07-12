@@ -6,17 +6,20 @@ gtb provides a development environment with live reload, CSS injection, critical
 
 ## Project Structure
 
-```
+```text
 your-theme/
 ├── src/
 │   ├── js/              # TypeScript / JavaScript entry points
-│   │   └── css/         # CSS entry points
-│   │   └── img/         # Images (optimized via sharp)
-│   │   └── critical/    # Critical CSS/JS (inlined into templates)
+│   │   └── critical/    # Critical JS (inlined into templates)
+│   ├── css/             # CSS entry points
+│   │   └── critical/    # Critical CSS (inlined into templates)
+│   └── img/             # Images (optimized via sharp to assets/built/img)
 ├── assets/
 │   ├── fonts/           # Static font files
 │   └── built/           # Build output (js, css, img)
-├── default-template.hbs  # Your template (edited here, rendered to default.hbs)
+├── locales/             # Translation files
+├── partials/            # Handlebars partials
+├── default-template.hbs # Your template (rendered to default.hbs)
 └── gtb.config.js        # Optional: esbuild overrides only
 ```
 
@@ -68,6 +71,7 @@ Starts the dev server, watches all files, and opens your local Ghost site in the
 | `gtb lint`   | Runs ESLint (JS/TS) and Stylelint (CSS) with auto-fix enabled.                                        |
 | `gtb check`  | Validates your theme against Ghost's official gscan engine.                                           |
 | `gtb zip`    | Optimizes images and packages the theme for distribution.                                             |
+| `gtb deploy` | Zips theme and deploys directly to your Ghost site via the Admin API.                                 |
 | `gtb doctor` | Checks your environment for compatibility and configuration issues.                                   |
 
 ---
@@ -79,9 +83,8 @@ gtb handles performance-critical patterns natively:
 - **Critical CSS/JS**: Any file placed in `src/css/critical/` or named `critical.ts` will be built as a critical asset and automatically inlined into `default.hbs`.
 - **Dark Mode**: The init command generates a `critical.ts` that prevents theme flickering and a `darkMode.ts` for toggle logic.
 
-:::warning
-
-Make changes to `default-template.hbs`. On dev/build, this file is rendered as `default.hbs` with critical assets inlined.
+> [!WARNING]
+> Make changes to `default-template.hbs`. On dev/build, this file is rendered as `default.hbs` with critical assets inlined.
 
 ---
 
