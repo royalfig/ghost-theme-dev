@@ -60,9 +60,35 @@ export const POST_TEMPLATE_CONTENT = `{{!< default}}
 
 {{#post}}
 <div class="{{post_class}}">
-    
+    {{> "feature-image"}}
+
+    <section class="post-content">
+        {{content}}
+    </section>
+
+    {{#if comments}}
+        <section class="post-comments">
+            {{comments}}
+        </section>
+    {{/if}}
 </div>
-{{/post}}`;
+{{/post}}
+
+{{!-- Related posts --}}
+{{#if @custom.show_related_articles}}
+    {{#get "posts" include="authors" filter="id:-{{post.id}}" limit="4" as |related|}}
+        {{#if related}}
+            <section class="related-posts">
+                <h2>{{t "Read more"}}</h2>
+                <div class="post-feed">
+                    {{#foreach related}}
+                        {{> "card"}}
+                    {{/foreach}}
+                </div>
+            </section>
+        {{/if}}
+    {{/get}}
+{{/if}}`;
 
 export const INDEX_TEMPLATE_CONTENT = `{{!< default}}
 
@@ -70,6 +96,8 @@ export const INDEX_TEMPLATE_CONTENT = `{{!< default}}
     {{#foreach posts}}
         {{> "card"}}
     {{/foreach}}
+
+    {{pagination}}
 </section>`;
 
 export const PAGE_TEMPLATE_CONTENT = `{{!< default}}
@@ -81,10 +109,13 @@ export const PAGE_TEMPLATE_CONTENT = `{{!< default}}
         <h1>
             {{title}}
         </h1>
+        {{> "feature-image"}}
     </header>
     {{/match}}
 
-    {{!-- content here --}}
+    <section class="post-content">
+        {{content}}
+    </section>
 </article>
 {{/post}}`;
 
@@ -176,6 +207,15 @@ export const CARD_PARTIAL_CONTENT = `<article class="">
 
 export const HEADER_PARTIAL_CONTENT = `<header class="">
     {{navigation}}
+    
+    <div class="header-actions">
+        <button class="search-button" data-ghost-search>{{t "Search"}}</button>
+        {{#if @member}}
+            <a href="#/portal/account">{{t "Account"}}</a>
+        {{else}}
+            <a href="#/portal/signup">{{t "Subscribe"}}</a>
+        {{/if}}
+    </div>
 </header>`;
 
 export const FOOTER_PARTIAL_CONTENT = `<footer class="">
@@ -309,6 +349,12 @@ export const PACKAGE_JSON_TEMPLATE = (name: string) => `{
       },
       "2000": {
         "width": 2000
+      }
+    },
+    "custom": {
+      "show_related_articles": {
+        "type": "boolean",
+        "default": true
       }
     }
   },
@@ -459,6 +505,31 @@ export const EXTERNAL_ASSETS = [
   "*.ttf",
   "*.otf",
 ] as const;
+
+export const FEATURE_IMAGE_PARTIAL_CONTENT = `{{#if feature_image}}
+    <figure class="post-feature-image">
+        <img
+            srcset="{{img_url feature_image size="s"}} 300w,
+                    {{img_url feature_image size="m"}} 600w,
+                    {{img_url feature_image size="l"}} 1000w,
+                    {{img_url feature_image size="xl"}} 2000w"
+            sizes="(max-width: 1000px) 400px, 800px"
+            src="{{img_url feature_image size="m"}}"
+            alt="{{#if feature_image_alt}}{{feature_image_alt}}{{else}}{{title}}{{/if}}"
+            loading="lazy"
+        />
+        {{#if feature_image_caption}}
+            <figcaption>{{feature_image_caption}}</figcaption>
+        {{/if}}
+    </figure>
+{{/if}}`;
+
+export const LOCALES_EN_JSON_CONTENT = `{
+    "Search": "Search",
+    "Subscribe": "Subscribe",
+    "Account": "Account",
+    "Read more": "Read more"
+}`;
 
 export const GITIGNORE_CONTENT = `node_modules
 assets/built

@@ -50,6 +50,8 @@ import {
   GITIGNORE_CONTENT,
   CRITICAL_CSS_CONTENT,
   CSS_RESET,
+  FEATURE_IMAGE_PARTIAL_CONTENT,
+  LOCALES_EN_JSON_CONTENT,
 } from "./constants.js";
 
 export async function runNpmInstall() {
@@ -111,6 +113,8 @@ export async function makeSkeleton() {
       content: `{"recommendations": ["TryGhost.ghost"]}`,
     },
     { filename: ".github/deploy-theme.yaml", content: GH_ACTION_CONTENT },
+    { filename: "partials/feature-image.hbs", content: FEATURE_IMAGE_PARTIAL_CONTENT },
+    { filename: "locales/en.json", content: LOCALES_EN_JSON_CONTENT },
     { filename: "package.json", content: PACKAGE_JSON_TEMPLATE(themeName) },
     { filename: ".eslintrc.json", content: ESLINT_CONFIG_TEMPLATE },
     { filename: ".stylelintrc.json", content: STYLELINT_CONFIG_TEMPLATE },
