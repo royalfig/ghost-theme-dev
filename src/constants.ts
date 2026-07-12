@@ -367,16 +367,16 @@ export const PACKAGE_JSON_TEMPLATE = (name: string) => `{
   },
   "devDependencies": {
     "@royalfig/gtb": "latest",
-    "eslint": "^9.0.0",
-    "@eslint/js": "^9.13.0",
-    "globals": "^15.11.0",
-    "@types/eslint__js": "^8.42.3",
-    "@types/node": "^22.13.4",
-    "typescript": "^5.6.3",
-    "typescript-eslint": "^8.11.0",
-    "stylelint": "^16.0.0",
-    "stylelint-config-standard": "^36.0.0",
-    "stylelint-config-recess-order": "^5.1.1"
+    "eslint": "^10.7.0",
+    "@eslint/js": "^10.0.1",
+    "globals": "^17.7.0",
+    "@types/eslint__js": "^9.14.0",
+    "@types/node": "^26.1.1",
+    "typescript": "^7.0.2",
+    "typescript-eslint": "^8.63.0",
+    "stylelint": "^17.14.0",
+    "stylelint-config-standard": "^40.0.0",
+    "stylelint-config-recess-order": "^7.7.0"
   },
   "type": "module"
 }
