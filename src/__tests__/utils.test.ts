@@ -36,6 +36,7 @@ import {
   loadEnv,
   findFilesRecursively,
   optimizeImages,
+  isIgnoredPath,
 } from "../utils.js";
 import { execSync, spawnSync } from "node:child_process";
 import { existsSync, readFileSync, lstatSync } from "node:fs";
@@ -107,6 +108,18 @@ describe("findEntryPoints", () => {
         expect.stringContaining("css/index.css"),
       ]),
     );
+  });
+
+  it("treats top-level siblings of index as partials, not entry points", async () => {
+    vi.mocked(readdir).mockReset().mockResolvedValue([
+      { name: "index.css", isDirectory: () => false, isFile: () => true },
+      { name: "footer.css", isDirectory: () => false, isFile: () => true },
+      { name: "post-list.css", isDirectory: () => false, isFile: () => true },
+    ] as any);
+
+    const result = await findEntryPoints("src/css", [".css"]);
+
+    expect(result.map((p) => p.replace(/\\/g, "/"))).toEqual(["src/css/index.css"]);
   });
 
   it("should discover entry points in nested subdirectories (2-level recursion)", async () => {
@@ -389,9 +402,10 @@ function setupSharpMock() {
     jpg: vi.fn().mockReturnValue(toFileMock),
     png: vi.fn().mockReturnValue(toFileMock),
   };
-  const mockSharp = {
+  const mockSharp: any = {
     rotate: vi.fn().mockReturnValue({ resize: vi.fn().mockReturnValue(resizeMock) }),
   };
+  mockSharp.clone = vi.fn().mockReturnValue(mockSharp);
   (sharp as any).mockImplementation(() => mockSharp);
   return { toFileMock, mockSharp };
 }
@@ -483,5 +497,41 @@ describe("optimizeImages", () => {
 
     expect(readdir).toHaveBeenCalledWith("/test/path/src/img");
     expect(toFileMock.toFile).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe("isIgnoredPath", () => {
+  const file = { isFile: () => true } as any;
+
+  it("ignores node_modules, dist and assets/built by whole path segment", () => {
+    expect(isIgnoredPath("node_modules/x/index.js")).toBe(true);
+    expect(isIgnoredPath("dist")).toBe(true);
+    expect(isIgnoredPath("dist/theme.zip")).toBe(true);
+    expect(isIgnoredPath("assets/built/css/index.css")).toBe(true);
+  });
+
+  it("watches files whose names merely contain 'dist'", () => {
+    expect(isIgnoredPath("partials/distance.hbs", file)).toBe(false);
+    expect(isIgnoredPath("src/css/components/distribution.css")).toBe(false);
+  });
+
+  it("watches images, fonts, locales and package.json", () => {
+    expect(isIgnoredPath("src/img/hero.png")).toBe(false);
+    expect(isIgnoredPath("src/img/hero.png", file)).toBe(false);
+    expect(isIgnoredPath("assets/fonts/inter.woff2")).toBe(false);
+    expect(isIgnoredPath("locales/en.json")).toBe(false);
+    expect(isIgnoredPath("package.json", file)).toBe(false);
+  });
+
+  it("ignores dotfiles, lockfiles, the debug log and unrelated file types", () => {
+    expect(isIgnoredPath(".git/HEAD")).toBe(true);
+    expect(isIgnoredPath("package-lock.json")).toBe(true);
+    expect(isIgnoredPath("gtb-debug.log")).toBe(true);
+    expect(isIgnoredPath("README.md", file)).toBe(true);
+  });
+
+  it("does not ignore directories", () => {
+    expect(isIgnoredPath(".")).toBe(false);
+    expect(isIgnoredPath("partials")).toBe(false);
   });
 });

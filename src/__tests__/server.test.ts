@@ -22,18 +22,28 @@ vi.mock("ws", () => {
   };
 });
 
-vi.mock("../builder.js", () => ({
-  tree: new Map(),
-  writeAssets: vi.fn(),
-}));
+vi.mock("../builder.js", () => {
+  const tree = new Map<string, Set<string>>();
+  return {
+    tree,
+    writeAssets: vi.fn(),
+    inlineCritical: vi.fn(async () => true),
+    forgetEntry: vi.fn(async () => {}),
+    dependentsOf: (path: string) => [...(tree.get(path) ?? [])],
+  };
+});
 
 vi.mock("../utils.js", () => ({
   GtbConfig: vi.fn(),
   logToFile: vi.fn(),
+  findEntryPoints: vi.fn(async () => []),
+  optimizeImage: vi.fn(async () => {}),
+  removeImageOutputs: vi.fn(async () => {}),
 }));
 
-import { printCompilationDetails, printHeader, initWs } from "../server.js";
-import { tree, writeAssets } from "../builder.js";
+import { printCompilationDetails, printHeader, initWs, classifyChange } from "../server.js";
+import { tree, writeAssets, inlineCritical } from "../builder.js";
+import { optimizeImage, findEntryPoints } from "../utils.js";
 import type { CompilationDetails } from "../builder.js";
 import { WebSocketServer } from "ws";
 
@@ -146,6 +156,23 @@ describe("printHeader", () => {
   });
 });
 
+describe("classifyChange", () => {
+  const entries = new Set(["src/css/index.css"]);
+
+  it("classifies theme files", () => {
+    expect(classifyChange("default.hbs", entries)).toBe("ignore");
+    expect(classifyChange("default-template.hbs", entries)).toBe("layout");
+    expect(classifyChange("partials/distance.hbs", entries)).toBe("template");
+    expect(classifyChange("src/css/components/card.css", entries)).toBe("source");
+    expect(classifyChange("src/img/a.png", entries)).toBe("image");
+    expect(classifyChange("assets/fonts/inter.woff2", entries)).toBe("asset");
+    expect(classifyChange("package.json", entries)).toBe("package");
+    expect(classifyChange("locales/en.json", entries)).toBe("locale");
+    expect(classifyChange("gtb.config.js", entries)).toBe("ignore");
+    expect(classifyChange("tsconfig.json", entries)).toBe("ignore");
+  });
+});
+
 describe("initWs", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -165,119 +192,197 @@ describe("initWs", () => {
     return mockWsServer.on.mock.calls.find((call: any[]) => call[0] === "connection")?.[1];
   }
 
-  async function setupWsConnection(mockWsServer: any, mockWatcher: any) {
-    await initWs({ results: [], time: 0 }, 3000, "http://localhost:3000", mockWatcher as any, {});
-    const connectionCallback = getConnectionCallback(mockWsServer);
-    const mockWs = { on: vi.fn(), send: vi.fn() };
-    connectionCallback(mockWs);
-    const messageCallback = mockWs.on.mock.calls.find((call: any[]) => call[0] === "message")?.[1];
-    return { mockWs, messageCallback };
-  }
-
   function setupInitWs() {
     vi.useFakeTimers();
     vi.spyOn(console, "log").mockImplementation(() => {});
     vi.spyOn(console, "clear").mockImplementation(() => {});
 
+    const sent: any[] = [];
+    const client = { readyState: 1, send: (m: string) => sent.push(JSON.parse(m)) };
     const mockWsServer = {
       on: vi.fn(),
-      clients: new Set(),
+      clients: new Set([client]),
     };
     currentMockWsServer = mockWsServer;
     vi.mocked(writeAssets).mockResolvedValue({ results: [], time: 0 });
 
     const mockWatcher = { on: vi.fn() };
 
-    return { mockWsServer, mockWatcher };
+    return { mockWsServer, mockWatcher, sent };
+  }
+
+  async function start(entries: string[] = ["src/css/index.css", "src/js/index.ts"]) {
+    const ctx = setupInitWs();
+    const handle = await initWs({ results: [], time: 0 }, 3000, "http://localhost:2368", ctx.mockWatcher as any, {}, entries);
+    const fire = getWatcherCallback(ctx.mockWatcher);
+    const settle = async () => {
+      await vi.advanceTimersByTimeAsync(100);
+      await handle.idle();
+    };
+    return { ...ctx, fire, settle };
+  }
+
+  function built(outputs: string[]) {
+    vi.mocked(writeAssets).mockResolvedValueOnce({
+      results: outputs.map((file) => ({ file, value: "1 KiB" })),
+      time: 1,
+      outputs,
+      errors: [],
+      warnings: [],
+    });
   }
 
   it("should initialize WebSocket server on the given port", async () => {
-    const { mockWatcher } = setupInitWs();
-
-    await initWs(
-      { results: [], time: 0 },
-      3000,
-      "http://localhost:3000",
-      mockWatcher as any,
-      {},
-    );
-
+    await start();
     expect(WebSocketServer).toHaveBeenCalledWith({ port: 3000 });
   });
 
-  it("should register watcher and connection handlers", async () => {
-    const { mockWsServer, mockWatcher } = setupInitWs();
+  it("hot-swaps CSS when a stylesheet entry changes", async () => {
+    const { fire, settle, sent } = await start();
+    built(["assets/built/css/index.css"]);
 
-    await initWs(
-      { results: [], time: 0 },
-      3000,
-      "http://localhost:3000",
-      mockWatcher as any,
-      {},
-    );
+    fire("change", "src/css/index.css");
+    await settle();
 
-    expect(mockWatcher.on).toHaveBeenCalledWith("all", expect.any(Function));
-    expect(mockWsServer.on).toHaveBeenCalledWith(
-      "connection",
-      expect.any(Function),
-    );
+    expect(writeAssets).toHaveBeenCalledWith(["src/css/index.css"], 3000, true, {}, { renderTemplate: false });
+    expect(sent).toEqual([{ type: "css", files: ["built/css/index.css"], source: "src/css/index.css" }]);
   });
 
-  it("should rebuild on JS/TS file changes", async () => {
-    const { mockWatcher } = setupInitWs();
-    await initWs({ results: [], time: 0 }, 3000, "http://localhost:3000", mockWatcher as any, {});
+  it("rebuilds every entry that imports a changed partial", async () => {
+    const { fire, settle } = await start(["src/css/index.css", "src/css/critical/index.css"]);
+    tree.set("src/css/card.css", new Set(["src/css/index.css", "src/css/critical/index.css"]));
+    built(["assets/built/css/index.css", "assets/built/css/critical/index.css"]);
 
-    const watcherCallback = getWatcherCallback(mockWatcher);
-    await watcherCallback("change", "assets/js/index.ts");
-    await vi.runAllTimersAsync();
-    expect(writeAssets).toHaveBeenCalled();
+    fire("change", "src/css/card.css");
+    await settle();
+
+    expect(vi.mocked(writeAssets).mock.calls[0][0].sort()).toEqual(["src/css/critical/index.css", "src/css/index.css"]);
   });
 
-  it("should rebuild on CSS file changes", async () => {
-    const { mockWatcher } = setupInitWs();
-    await initWs({ results: [], time: 0 }, 3000, "http://localhost:3000", mockWatcher as any, {});
+  it("reloads instead of hot-swapping when a critical asset changed", async () => {
+    const { fire, settle, sent } = await start(["src/css/critical/index.css"]);
+    built(["assets/built/css/critical/index.css"]);
 
-    const watcherCallback = getWatcherCallback(mockWatcher);
-    await watcherCallback("change", "assets/css/index.css");
-    await vi.runAllTimersAsync();
-    expect(writeAssets).toHaveBeenCalled();
+    fire("change", "src/css/critical/index.css");
+    await settle();
+
+    expect(sent).toEqual([{ type: "reload", reason: "critical asset changed (inlined in default.hbs)" }]);
   });
 
-  it("should skip build artifacts", async () => {
-    const { mockWatcher } = setupInitWs();
-    await initWs({ results: [], time: 0 }, 3000, "http://localhost:3000", mockWatcher as any, {});
+  it("reloads on JS changes", async () => {
+    const { fire, settle, sent } = await start();
+    built(["assets/built/js/index.js"]);
 
-    const watcherCallback = getWatcherCallback(mockWatcher);
-    await watcherCallback("change", "assets/built/js/index.js.map");
+    fire("change", "src/js/index.ts");
+    await settle();
+
+    expect(sent).toEqual([{ type: "reload", reason: "JS changed: src/js/index.ts" }]);
+  });
+
+  it("sends the error and does not reload when the build fails", async () => {
+    const { fire, settle, sent } = await start();
+    vi.mocked(writeAssets).mockResolvedValueOnce({
+      results: [],
+      time: 0,
+      outputs: [],
+      errors: [{ file: "src/js/index.ts", text: "src/js/index.ts:1:6: Expected identifier", pretty: "x" }],
+      warnings: [],
+    });
+
+    fire("change", "src/js/index.ts");
+    await settle();
+
+    expect(sent).toEqual([
+      { type: "error", file: "src/js/index.ts", message: "src/js/index.ts:1:6: Expected identifier" },
+    ]);
+  });
+
+  it("coalesces a burst of template saves into one reload", async () => {
+    const { fire, settle, sent } = await start();
+
+    fire("change", "partials/card.hbs");
+    fire("change", "partials/card.hbs");
+    fire("change", "partials/card.hbs");
+    await settle();
+
+    expect(sent).toEqual([{ type: "reload", reason: "template changed: partials/card.hbs" }]);
+  });
+
+  it("ignores gtb's own writes to default.hbs", async () => {
+    const { fire, settle, sent } = await start();
+
+    fire("change", "default.hbs");
+    await settle();
+
+    expect(sent).toEqual([]);
     expect(writeAssets).not.toHaveBeenCalled();
   });
 
+  it("re-renders default.hbs when the layout template changes", async () => {
+    const { fire, settle, sent } = await start();
+
+    fire("change", "default-template.hbs");
+    await settle();
+
+    expect(inlineCritical).toHaveBeenCalledWith("assets/built", "default-template.hbs", 3000);
+    expect(sent).toEqual([{ type: "reload", reason: "layout changed: default-template.hbs" }]);
+  });
+
+  it("optimizes just the changed image and reloads", async () => {
+    const { fire, settle, sent } = await start();
+
+    fire("add", "src/img/hero.png");
+    await settle();
+
+    expect(optimizeImage).toHaveBeenCalledWith("src/img/hero.png", process.cwd());
+    expect(sent).toEqual([{ type: "reload", reason: "image added: src/img/hero.png" }]);
+  });
+
+  it("builds an entry point added while dev is running", async () => {
+    const { fire, settle, sent } = await start([]);
+    vi.mocked(findEntryPoints).mockImplementation(async (dir: string) => (dir === "src/css" ? ["src/css/post.css"] : []));
+    built(["assets/built/css/post.css"]);
+
+    fire("add", "src/css/post.css");
+    await settle();
+
+    expect(vi.mocked(writeAssets).mock.calls[0][0]).toEqual(["src/css/post.css"]);
+    expect(sent).toEqual([{ type: "css", files: ["built/css/post.css"], source: "src/css/post.css" }]);
+  });
+
+  it("tells the browser when a changed file isn't imported anywhere", async () => {
+    const { fire, settle, sent } = await start();
+
+    fire("change", "src/css/components/orphan.css");
+    await settle();
+
+    expect(writeAssets).not.toHaveBeenCalled();
+    expect(sent[0]).toMatchObject({ type: "notice" });
+    expect(sent[0].message).toContain("orphan.css");
+  });
+
+  it("normalizes Windows paths", async () => {
+    const { fire, settle } = await start();
+    built(["assets/built/css/index.css"]);
+
+    fire("change", "src\\css\\index.css");
+    await settle();
+
+    expect(vi.mocked(writeAssets).mock.calls[0][0]).toEqual(["src/css/index.css"]);
+  });
+
   it("should handle WebSocket connection", async () => {
-    const { mockWsServer, mockWatcher } = setupInitWs();
-    await initWs({ results: [], time: 0 }, 3000, "http://localhost:3000", mockWatcher as any, {});
+    const { mockWsServer } = await start();
 
     const connectionCallback = getConnectionCallback(mockWsServer);
     const mockWs = { on: vi.fn(), send: vi.fn() };
     connectionCallback(mockWs);
 
     expect(mockWs.on).toHaveBeenCalledWith("message", expect.any(Function));
-  });
-
-  it("should handle valid WebSocket messages", async () => {
-    const { mockWsServer, mockWatcher } = setupInitWs();
-    const { messageCallback } = await setupWsConnection(mockWsServer, mockWatcher);
-
+    const messageCallback = mockWs.on.mock.calls.find((call: any[]) => call[0] === "message")?.[1];
     expect(() =>
-      messageCallback(
-        JSON.stringify({ url: "http://localhost:3000", title: "Test", version: "3.0.0" }),
-      ),
+      messageCallback(JSON.stringify({ url: "http://localhost:2368", title: "Test", version: "6.0" })),
     ).not.toThrow();
-  });
-
-  it("should handle malformed WebSocket messages gracefully", async () => {
-    const { mockWsServer, mockWatcher } = setupInitWs();
-    const { messageCallback } = await setupWsConnection(mockWsServer, mockWatcher);
-
     expect(() => messageCallback("invalid json")).not.toThrow();
   });
 });

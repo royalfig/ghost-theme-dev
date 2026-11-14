@@ -2,7 +2,7 @@ import select from "@inquirer/select";
 import confirm from "@inquirer/confirm";
 import input from "@inquirer/input";
 import { homedir } from "node:os";
-import { execSync } from "node:child_process";
+import { execSync, spawnSync } from "node:child_process";
 import { createWriteStream, existsSync } from "node:fs";
 import {
   writeFile as writeFilePromise,
@@ -15,9 +15,7 @@ import {
   copyFile as copyFilePromise,
 } from "node:fs/promises";
 import { join, dirname, basename, resolve, extname } from "node:path";
-import gscan from "gscan";
 import chalk from "chalk";
-import GhostAdminApi from "@tryghost/admin-api";
 
 import {
   runCommand,
@@ -25,7 +23,9 @@ import {
   checkNodeVersion,
   findFilesRecursively,
   optimizeImages,
+  loadConfig,
 } from "./utils.js";
+import { buildTheme } from "./builder.js";
 import {
   GH_ACTION_CONTENT,
   DEFAULT_TEMPLATE_CONTENT,
@@ -195,28 +195,34 @@ export async function parseGhostCliOutput(): Promise<string> {
 }
 
 export async function checkTheme() {
+  const { default: gscan } = await import("gscan");
   const report = await gscan.check(process.cwd());
   const formattedReport = gscan.format(report);
   console.log(formattedReport);
   if (report.results.errorCount > 0) process.exit(1);
 }
 
-export async function lintTheme() {
-  console.log(chalk.blue("⬥"), " Running ESLint...");
-  try {
-    runCommand('npx eslint "src/js/**/*.{js,ts}" --fix', true);
-    console.log(chalk.green("✔"), " JS/TS linting passed.");
-  } catch (e) {
-    /* ignore */
+function runLinter(label: string, args: string[]): boolean {
+  console.log(chalk.blue("⬥"), ` Running ${label}...`);
+  // `npx --no` fails instead of offering to download a linter the theme doesn't have.
+  const result = spawnSync("npx", ["--no", ...args], {
+    stdio: "inherit",
+    shell: process.platform === "win32",
+  });
+  if (result.status === 0) {
+    console.log(chalk.green("✔"), ` ${label} passed.`);
+    return true;
   }
+  console.log(chalk.red("✘"), ` ${label} failed (see output above).`);
+  return false;
+}
 
-  console.log(chalk.blue("⬥"), " Running Stylelint...");
-  try {
-    runCommand('npx stylelint "src/css/**/*.css" --fix', true);
-    console.log(chalk.green("✔"), " CSS linting passed.");
-  } catch (e) {
-    /* ignore */
-  }
+export async function lintTheme(): Promise<boolean> {
+  const jsOk = runLinter("ESLint", ["eslint", "src/js/**/*.{js,ts}", "--fix"]);
+  const cssOk = runLinter("Stylelint", ["stylelint", "src/css/**/*.css", "--fix"]);
+  const ok = jsOk && cssOk;
+  if (!ok) process.exitCode = 1;
+  return ok;
 }
 
 export async function zipTheme() {
@@ -245,6 +251,11 @@ export async function zipTheme() {
 
   if (!existsSync(distDir)) await mkdirPromise(distDir);
 
+  // Always ship a fresh production build: after `gtb dev`, assets/built holds
+  // unminified output and default.hbs holds the live-reload client.
+  console.log(chalk.blue("⬥"), " Building assets for production...");
+  await buildTheme(await loadConfig());
+
   console.log(chalk.blue("⬥"), " Optimizing images...");
   try {
     await optimizeImages(folderPath);
@@ -255,20 +266,27 @@ export async function zipTheme() {
   const output = createWriteStream(join(distDir, zipName));
   const archive = new (await import("archiver")).ZipArchive({ zlib: { level: 9 } });
 
-  output.on("close", () => {
-    console.log(
-      chalk.green("⬥"),
-      ` Theme packaged to dist/${zipName} (${(archive.pointer() / 1024 / 1024).toFixed(2)} MB)`,
-    );
+  const written = new Promise<void>((resolvePromise, reject) => {
+    output.on("close", () => resolvePromise());
+    output.on("error", reject);
+    archive.on("error", reject);
   });
 
   archive.pipe(output);
-  archive.glob("**/*.hbs", { ignore: ["node_modules/**"] });
+  // partials/** is added whole below; globbing its .hbs files here too would
+  // put every partial in the zip twice.
+  archive.glob("**/*.hbs", { ignore: ["node_modules/**", "dist/**", "partials/**"] });
   archive.glob("assets/**");
   archive.glob("package.json");
   archive.glob("routes.yaml");
   archive.glob("partials/**");
   await archive.finalize();
+  // finalize() resolves before the file is flushed; deploy uploads it next.
+  await written;
+  console.log(
+    chalk.green("⬥"),
+    ` Theme packaged to dist/${zipName} (${(archive.pointer() / 1024 / 1024).toFixed(2)} MB)`,
+  );
   return join(distDir, zipName);
 }
 
@@ -293,6 +311,7 @@ export async function deployTheme() {
   console.log(chalk.blue("⬥"), " Building and packaging theme...");
   const zipPath = await zipTheme();
 
+  const { default: GhostAdminApi } = await import("@tryghost/admin-api");
   const api = new GhostAdminApi({ url, key, version: "v5.0" });
 
   console.log(chalk.blue("⬥"), ` Uploading theme to ${url}...`);

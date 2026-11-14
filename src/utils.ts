@@ -1,10 +1,29 @@
 import { execSync, spawnSync } from "node:child_process";
 import { readdir, stat, readFile, mkdir, unlink, copyFile, access, constants } from "node:fs/promises";
-import { join, dirname, extname } from "node:path";
+import { join, dirname, extname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { existsSync, unlinkSync, readFileSync, lstatSync } from "node:fs";
 import chalk from "chalk";
-import sharp from "sharp";
+import type { Stats } from "node:fs";
+
+const IGNORED_SEGMENT = /(^|[/\\])(node_modules|dist)([/\\]|$)/i;
+const BUILT_DIR = /(^|[/\\])assets[/\\]built([/\\]|$)/i;
+const WATCHED_FILE = /\.(hbs|css|js|ts|json|jpe?g|png|webp|avif|svg|woff2?|ttf|otf)$/i;
+
+/**
+ * chokidar `ignored` filter for `gtb dev`. Directories are matched by whole
+ * path segment, so `partials/distance.hbs` is watched but `dist/` is not.
+ */
+export function isIgnoredPath(path: string, stats?: Stats): boolean {
+  if (path !== "." && /(^|[/\\])\../.test(path)) return true;
+  if (IGNORED_SEGMENT.test(path) || BUILT_DIR.test(path)) return true;
+  if (/(^|[/\\])(postcss\.config\.js|package-lock\.json|gtb-debug\.log)$/i.test(path)) return true;
+  if (stats?.isFile()) return !WATCHED_FILE.test(path);
+  // Without stats chokidar may be asking about a directory; only rule out
+  // paths that clearly name a file of a type gtb doesn't care about.
+  if (/\.[^/\\]+$/.test(path)) return !WATCHED_FILE.test(path);
+  return false;
+}
 
 export interface GtbConfig {
     esbuild?: any;
@@ -203,7 +222,9 @@ export async function findEntryPoints(entryPointPath: string, exts: string[]): P
             if (entry.isDirectory()) {
                 if (entry.name === "built" || entry.name === "dist" || entry.name === "node_modules") continue;
                 entryPoints.push(...await collectSubDirEntries(join(entryPointPath, entry.name), exts));
-            } else if (exts.some(ext => entry.name.endsWith(ext))) {
+            } else if (isEntryPoint(entry.name, exts)) {
+                // Same rule as subfolders: siblings such as footer.css are
+                // partials imported by index.css, not bundles of their own.
                 entryPoints.push(join(entryPointPath, entry.name));
             }
         }
@@ -271,6 +292,23 @@ function loadImageSizes(folderPath: string): Record<string, { width: number }> {
     }
 }
 
+const IMAGE_FILE_RE = /\.(jpg|jpeg|png|webp|avif|svg)$/i;
+
+/** Output paths for one source image, e.g. `assets/built/img/a-300.jpg`, `.webp`, `.avif`. */
+function imageOutputPaths(
+    targetPath: string,
+    ext: string,
+    imageSizes: Record<string, { width: number }>,
+): { width: number; original: string; webp: string | null; avif: string | null }[] {
+    const basePath = targetPath.slice(0, -ext.length || undefined);
+    return Object.values(imageSizes).map(({ width }) => ({
+        width,
+        original: `${basePath}-${width}${ext}`,
+        webp: ext.toLowerCase() !== ".webp" ? `${basePath}-${width}.webp` : null,
+        avif: ext.toLowerCase() !== ".avif" ? `${basePath}-${width}.avif` : null,
+    }));
+}
+
 async function processImageFile(
     file: string,
     imgDir: string,
@@ -290,29 +328,25 @@ async function processImageFile(
     }
 
     const ext = extname(file);
-    const format = ext.slice(1) === "jpg" ? "jpeg" : ext.slice(1) as "webp" | "avif" | "jpeg" | "png";
+    const lowerExt = ext.slice(1).toLowerCase();
+    const format = lowerExt === "jpg" ? "jpeg" : lowerExt as "webp" | "avif" | "jpeg" | "png";
 
-    for (const [, sizeConfig] of Object.entries(imageSizes)) {
-        const width = sizeConfig.width;
-        const basePath = targetPath.slice(0, -ext.length || undefined);
-        const originalOutputPath = `${basePath}-${width}${ext}`;
-        const webpOutputPath = `${basePath}-${width}.webp`;
-        const avifOutputPath = `${basePath}-${width}.avif`;
+    // Loaded on demand: sharp is a large native module most commands never need.
+    const { default: sharp } = await import("sharp");
+    const source = sharp(file);
+    const jobs: Promise<unknown>[] = [];
 
-        if (!force && await checkFileUptodate(file, [originalOutputPath, webpOutputPath, avifOutputPath])) {
-            continue;
-        }
+    for (const out of imageOutputPaths(targetPath, ext, imageSizes)) {
+        const targets = [out.original, out.webp, out.avif].filter((t): t is string => t !== null);
+        if (!force && await checkFileUptodate(file, targets)) continue;
 
-        await sharp(file).rotate().resize({ width, withoutEnlargement: true })[format]().toFile(originalOutputPath);
-
-        if (ext !== ".webp") {
-            await sharp(file).rotate().resize({ width, withoutEnlargement: true }).webp({ quality: 80 }).toFile(webpOutputPath);
-        }
-
-        if (ext !== ".avif") {
-            await sharp(file).rotate().resize({ width, withoutEnlargement: true }).avif({ quality: 80 }).toFile(avifOutputPath);
-        }
+        const resized = () => source.clone().rotate().resize({ width: out.width, withoutEnlargement: true });
+        jobs.push(resized()[format]().toFile(out.original));
+        if (out.webp) jobs.push(resized().webp({ quality: 80 }).toFile(out.webp));
+        if (out.avif) jobs.push(resized().avif({ quality: 80 }).toFile(out.avif));
     }
+
+    await Promise.all(jobs);
 }
 
 export async function optimizeImages(folderPath: string, force = false) {
@@ -323,11 +357,34 @@ export async function optimizeImages(folderPath: string, force = false) {
 
     const imageSizes = loadImageSizes(folderPath);
     const files = await findFilesRecursively(imgDir);
-    const imageFiles = files.filter((f) => /\.(jpg|jpeg|png|webp|avif|svg)$/i.test(f));
+    const imageFiles = files.filter((f) => IMAGE_FILE_RE.test(f));
 
     for (const file of imageFiles) {
         await processImageFile(file, imgDir, builtImgDir, imageSizes, force);
     }
+}
+
+/** Optimizes one image from src/img (path relative to the theme or absolute). */
+export async function optimizeImage(file: string, folderPath: string, force = false) {
+    if (!IMAGE_FILE_RE.test(file)) return;
+    const imgDir = join(folderPath, "src/img");
+    const builtImgDir = join(folderPath, "assets/built/img");
+    await processImageFile(resolve(folderPath, file), imgDir, builtImgDir, loadImageSizes(folderPath), force);
+}
+
+/** Deletes the built outputs of an image that was removed from src/img. */
+export async function removeImageOutputs(file: string, folderPath: string) {
+    const imgDir = join(folderPath, "src/img");
+    const builtImgDir = join(folderPath, "assets/built/img");
+    const targetPath = join(builtImgDir, resolve(folderPath, file).replace(imgDir, ""));
+    const ext = extname(file);
+
+    const targets = ext.toLowerCase() === ".svg"
+        ? [targetPath]
+        : imageOutputPaths(targetPath, ext, loadImageSizes(folderPath)).flatMap((o) =>
+            [o.original, o.webp, o.avif].filter((t): t is string => t !== null));
+
+    await Promise.all(targets.map((t) => unlink(t).catch(() => undefined)));
 }
 
 async function checkFileUptodate(source: string, targets: string[]): Promise<boolean> {

@@ -32,6 +32,11 @@ vi.mock("node:fs", () => ({
 
 vi.mock("node:child_process", () => ({
   execSync: vi.fn().mockReturnValue(Buffer.from("")),
+  spawnSync: vi.fn().mockReturnValue({ status: 0 }),
+}));
+
+vi.mock("../builder.js", () => ({
+  buildTheme: vi.fn().mockResolvedValue({ results: [], time: 0 }),
 }));
 
 vi.mock("@inquirer/select", () => ({
@@ -92,6 +97,8 @@ vi.mock("../utils.js", () => ({
   findEntryPoints: vi.fn().mockResolvedValue([]),
   downloadFile: vi.fn().mockResolvedValue(undefined),
   findFilesRecursively: vi.fn().mockResolvedValue([]),
+  optimizeImages: vi.fn().mockResolvedValue(undefined),
+  loadConfig: vi.fn().mockResolvedValue({}),
 }));
 
 vi.mock("../constants.js", async (importOriginal) => ({
@@ -101,8 +108,9 @@ vi.mock("../constants.js", async (importOriginal) => ({
 
 import { writeFile, access, mkdir } from "node:fs/promises";
 import { existsSync, createWriteStream } from "node:fs";
-import { execSync } from "node:child_process";
+import { execSync, spawnSync } from "node:child_process";
 import { runCommand, hasCommand } from "../utils.js";
+import { buildTheme } from "../builder.js";
 import gscan from "gscan";
 
 describe("CLI Commands", () => {
@@ -191,9 +199,25 @@ describe("CLI Commands", () => {
   });
 
   describe("lintTheme", () => {
-    it("should run ESLint and Stylelint", async () => {
-      await lintTheme();
-      expect(runCommand).toHaveBeenCalledTimes(2);
+    it("runs ESLint and Stylelint and reports success", async () => {
+      vi.mocked(spawnSync).mockReturnValue({ status: 0 } as any);
+      const ok = await lintTheme();
+      expect(spawnSync).toHaveBeenCalledTimes(2);
+      expect(vi.mocked(spawnSync).mock.calls[0][1]).toEqual(
+        expect.arrayContaining(["--no", "eslint"]),
+      );
+      expect(ok).toBe(true);
+    });
+
+    it("reports failure and sets a non-zero exit code when a linter fails", async () => {
+      vi.mocked(spawnSync)
+        .mockReturnValueOnce({ status: 1 } as any)
+        .mockReturnValueOnce({ status: 0 } as any);
+      const previous = process.exitCode;
+      const ok = await lintTheme();
+      expect(ok).toBe(false);
+      expect(process.exitCode).toBe(1);
+      process.exitCode = previous;
     });
   });
 
@@ -208,7 +232,9 @@ describe("CLI Commands", () => {
 
       // createWriteStream needs to return an object with .on and be pipeable
       vi.mocked(createWriteStream).mockReturnValue({
-        on: vi.fn(),
+        on: vi.fn((event: string, cb: () => void) => {
+          if (event === "close") setTimeout(cb, 0);
+        }),
       } as any);
 
       // Re-setup archiver mock (cleared by vi.clearAllMocks)
@@ -217,10 +243,17 @@ describe("CLI Commands", () => {
         glob: vi.fn(),
         finalize: vi.fn().mockResolvedValue(undefined),
         pointer: vi.fn().mockReturnValue(1024),
+        on: vi.fn(),
       };
 
       const result = await zipTheme();
       expect(result).toContain(".zip");
+      expect(buildTheme).toHaveBeenCalled();
+      // partials are added once, not also via the **/*.hbs glob
+      expect(currentZipArchiveMock.glob).toHaveBeenCalledWith(
+        "**/*.hbs",
+        expect.objectContaining({ ignore: expect.arrayContaining(["partials/**"]) }),
+      );
     });
   });
 

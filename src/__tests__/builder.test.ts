@@ -3,16 +3,19 @@ import {
   writeAssets,
   inlineCritical,
   tree,
+  dependentsOf,
+  disposeContexts,
   BuildResult,
   CompilationDetails,
 } from "../builder.js";
+import { CLIENT_MARKER } from "../client.js";
 
-// Mock esbuild
 vi.mock("esbuild", () => ({
   build: vi.fn(),
+  context: vi.fn(),
+  formatMessages: vi.fn(async (msgs: any[]) => msgs.map((m) => `pretty: ${m.text}`)),
 }));
 
-// Mock fs and fs/promises
 vi.mock("node:fs", () => ({
   readdirSync: vi.fn(),
 }));
@@ -22,489 +25,347 @@ vi.mock("node:fs/promises", () => ({
   writeFile: vi.fn(),
 }));
 
-// Mock utils
 vi.mock("../utils.js", () => ({
   formatBytes: vi.fn((bytes: number) => `${bytes} bytes`),
   GtbConfig: vi.fn(),
   logToFile: vi.fn(),
+  findEntryPoints: vi.fn(async () => []),
 }));
 
-// Mock constants
 vi.mock("../constants.js", () => ({
-  EXTERNAL_ASSETS: [
-    "*.png",
-    "*.jpg",
-    "*.jpeg",
-    "*.svg",
-    "*.gif",
-    "*.woff",
-    "*.woff2",
-    "*.ttf",
-    "*.otf",
-  ],
+  EXTERNAL_ASSETS: ["*.png", "*.woff2"],
 }));
 
-// Mock lightningcss and browserslist
 vi.mock("lightningcss", () => ({
-  transform: vi.fn(() => ({ code: Buffer.from(""), map: undefined })),
-  Features: {
-    Nesting: 1,
-    CustomProperties: 2,
-    ContainerQueries: 4,
-    MediaQueries: 8,
-    Colors: 16,
-  },
+  transform: vi.fn(({ code }: { code: Buffer }) => ({ code, map: undefined })),
   browserslistToTargets: vi.fn((x) => x),
 }));
 
 vi.mock("browserslist", () => ({
-  default: vi.fn(() => ["chrome >= 90", "firefox >= 88", "safari >= 14"]),
+  default: vi.fn(() => ["chrome 120", "firefox 120", "safari 17.4"]),
 }));
 
 import * as esbuild from "esbuild";
 import { readFile, writeFile } from "node:fs/promises";
 import { readdirSync } from "node:fs";
+import { transform } from "lightningcss";
 
-function makeMetafile(
-  outputs: Record<
-    string,
-    {
-      bytes: number;
-      entryPoint?: string;
-      inputs?: Record<string, { bytesInOutput: number }>;
-    }
-  >,
-  inputs?: Record<string, { bytes: number }>,
+const CSS_TAG = '<link rel="stylesheet" href="{{asset "built/css/critical/index.css"}}">';
+const JS_TAG = '<script src="{{asset "built/js/critical/index.js"}}"></script>';
+const HOME_CSS_TAG = '<link rel="stylesheet" href="{{asset "built/css/critical/home/index.css"}}">';
+
+/** In-memory files for readFile/writeFile, keyed by path. */
+let files: Record<string, string>;
+let dirs: Record<string, string[]>;
+
+function useFakeFs(initial: Record<string, string>, criticalDirs: Record<string, string[]> = {}) {
+  files = { ...initial };
+  dirs = criticalDirs;
+  vi.mocked(readFile).mockImplementation((async (path: string, enc?: string) => {
+    if (!(path in files)) throw Object.assign(new Error(`ENOENT ${path}`), { code: "ENOENT" });
+    return enc ? files[path] : Buffer.from(files[path]);
+  }) as any);
+  vi.mocked(writeFile).mockImplementation((async (path: string, data: any) => {
+    files[path] = Buffer.isBuffer(data) ? data.toString() : String(data);
+  }) as any);
+  vi.mocked(readdirSync).mockImplementation(((path: string) => {
+    if (!(path in dirs)) throw new Error("ENOENT");
+    return dirs[path].map((name) => ({ name, isDirectory: () => true }));
+  }) as any);
+}
+
+function output(
+  file: string,
+  entryPoint: string,
+  inputs: string[],
+  bytes = 100,
 ) {
   return {
-    metafile: {
-      inputs: inputs || {},
-      outputs,
+    [file]: {
+      bytes,
+      entryPoint,
+      inputs: Object.fromEntries(inputs.map((i) => [i, { bytesInOutput: 1 }])),
     },
   };
 }
 
-describe("writeAssets", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    tree.clear();
-  });
+function metafile(outputs: Record<string, any>) {
+  return { metafile: { inputs: {}, outputs }, warnings: [], errors: [] } as any;
+}
 
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
+/** Dev mode builds through esbuild.context(); each context's rebuild() returns `result`. */
+function mockContexts(byEntry: Record<string, () => any>) {
+  const rebuilds: Record<string, ReturnType<typeof vi.fn>> = {};
+  vi.mocked(esbuild.context).mockImplementation((async (opts: any) => {
+    const entry = opts.entryPoints[0];
+    const rebuild = vi.fn(async () => byEntry[entry]());
+    rebuilds[entry] = rebuild;
+    return { rebuild, dispose: vi.fn(async () => {}) };
+  }) as any);
+  return rebuilds;
+}
 
-  it("should build assets successfully", async () => {
-    const mockEsbuild = vi.mocked(esbuild);
+beforeEach(async () => {
+  vi.clearAllMocks();
+  tree.clear();
+  await disposeContexts();
+  vi.spyOn(console, "log").mockImplementation(() => {});
+  vi.spyOn(console, "error").mockImplementation(() => {});
+});
 
-mockEsbuild.build.mockResolvedValue(
-      makeMetafile(
-        {
-          "assets/built/js/index.js": {
-            bytes: 512,
-            entryPoint: "src/js/index.ts",
-            inputs: { "src/js/index.ts": { bytesInOutput: 512 } },
-          },
-        },
-        { "src/js/index.ts": { bytes: 1024 } },
-      ) as any,
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+describe("writeAssets (production)", () => {
+  it("builds all entries in one esbuild.build call and reports outputs", async () => {
+    useFakeFs({ "default-template.hbs": "<html><body></body></html>" });
+    vi.mocked(esbuild.build).mockResolvedValue(
+      metafile({
+        ...output("assets/built/js/index.js", "src/js/index.ts", ["src/js/index.ts"], 512),
+        "assets/built/js/index.js.map": { bytes: 9, inputs: {} },
+      }),
     );
 
-    const result = await writeAssets(["src/js/index.ts"], 3000, false);
+    const result = await writeAssets(["src/js/index.ts"], 0, false);
 
-    expect(result.results).toHaveLength(1);
-    expect(result.results[0]).toEqual({
-      file: "assets/built/js/index.js",
-      value: "512 bytes",
-    });
+    expect(esbuild.build).toHaveBeenCalledTimes(1);
+    expect(esbuild.context).not.toHaveBeenCalled();
+    expect(result.results).toEqual([{ file: "assets/built/js/index.js", value: "512 bytes" }]);
+    expect(result.outputs).toEqual(["assets/built/js/index.js"]);
+    expect(result.errors).toEqual([]);
     expect(result.time).toBeGreaterThan(0);
   });
 
-  it("should handle critical assets and call inlineCritical", async () => {
-    const mockEsbuild = vi.mocked(esbuild);
-    const mockReadFile = vi.mocked(readFile);
-    const mockWriteFile = vi.mocked(writeFile);
-    const mockReaddirSync = vi.mocked(readdirSync);
+  it("inlines critical CSS and JS into default.hbs without the dev client", async () => {
+    useFakeFs({
+      "default-template.hbs": `<head>${JS_TAG}${CSS_TAG}</head><body></body>`,
+      "assets/built/css/critical/index.css": "html{color:red}\n/*# sourceMappingURL=index.css.map */\n",
+      "assets/built/js/critical/index.js": "(()=>{document.x=1})();\n//# sourceMappingURL=index.js.map\n",
+      "default.hbs": `old ${CLIENT_MARKER}`,
+    });
+    vi.mocked(esbuild.build).mockResolvedValue(metafile({}));
 
-    // writeAssets build
-    mockEsbuild.build.mockResolvedValue(
-      makeMetafile(
-        {
-          "assets/built/js/critical/index.js": {
-            bytes: 512,
-            entryPoint: "src/js/critical/index.ts",
-            inputs: {
-              "src/js/critical/index.ts": { bytesInOutput: 512 },
-            },
-          },
-        },
-        { "src/js/critical/index.ts": { bytes: 1024 } },
-      ) as any,
-    );
+    const result = await writeAssets([], 0, false);
 
-    const CSS_TAG =
-      '<link rel="stylesheet" href="{{asset "built/css/critical/index.css"}}">';
-
-    // inlineCritical reads: default.hbs, then critical css (may fail), then getCriticalDirs
-    mockReadFile
-      .mockResolvedValueOnce(`<!DOCTYPE html><head>${CSS_TAG}</head>` as any)
-      .mockResolvedValueOnce("/* critical css */" as any);
-
-    mockReaddirSync
-      .mockReturnValueOnce([] as any)
-      .mockReturnValueOnce([] as any);
-
-    mockWriteFile.mockResolvedValue();
-
-    vi.spyOn(console, "log").mockImplementation(() => {});
-
-    await writeAssets(["src/js/critical/index.ts"], 3000, false);
-
-    expect(mockWriteFile).toHaveBeenCalledWith(
-      "default.hbs",
-      expect.stringContaining("<style>/* critical css */</style>"),
-    );
+    const hbs = files["default.hbs"];
+    expect(hbs).toContain("<style>html{color:red}</style>");
+    expect(hbs).toContain("<script>(()=>{document.x=1})();</script>");
+    expect(hbs).not.toContain("sourceMappingURL");
+    expect(hbs).not.toContain(CLIENT_MARKER);
+    expect(result.templateChanged).toBe(true);
   });
 
-  it("should not inline critical if tags not found in template", async () => {
-    const mockEsbuild = vi.mocked(esbuild);
-    const mockReadFile = vi.mocked(readFile);
-    const mockWriteFile = vi.mocked(writeFile);
-
-    mockEsbuild.build.mockResolvedValue(
-      makeMetafile(
-        {
-          "assets/built/js/critical/index.js": {
-            bytes: 512,
-            entryPoint: "src/js/critical/index.ts",
-            inputs: {
-              "src/js/critical/index.ts": { bytesInOutput: 512 },
-            },
-          },
-        },
-        { "src/js/critical/index.ts": { bytes: 1024 } },
-      ) as any,
+  it("throws with every error when the build fails", async () => {
+    useFakeFs({ "default-template.hbs": "" });
+    vi.mocked(esbuild.build).mockRejectedValue(
+      Object.assign(new Error("Build failed with 1 error"), {
+        errors: [{ text: "Expected identifier", location: { file: "src/js/index.ts", line: 3, column: 6 } }],
+        warnings: [],
+      }),
     );
 
-    // Template without the expected tags
-    mockReadFile.mockResolvedValue("plain template content" as any);
-    mockWriteFile.mockResolvedValue();
-
-    await writeAssets(["src/js/critical/index.ts"], 3000, false);
-
-    expect(mockWriteFile).toHaveBeenCalledWith(
-      "default.hbs",
-      expect.not.stringContaining("<script>"),
+    await expect(writeAssets(["src/js/index.ts"], 0, false)).rejects.toThrow(
+      /Build failed:\nsrc\/js\/index.ts:3:6: Expected identifier/,
     );
+    expect(console.error).toHaveBeenCalledWith("pretty: Expected identifier");
   });
 
-  it("should handle build errors gracefully in watch mode", async () => {
-    const mockEsbuild = vi.mocked(esbuild);
+  it("throws plain errors too", async () => {
+    useFakeFs({ "default-template.hbs": "" });
+    vi.mocked(esbuild.build).mockRejectedValue(new Error("boom"));
 
-    mockEsbuild.build.mockRejectedValue(new Error("Build failed"));
+    await expect(writeAssets(["src/js/index.ts"], 0, false)).rejects.toThrow("Build failed");
+  });
+});
 
-    vi.spyOn(console, "error").mockImplementation(() => {});
+describe("writeAssets (dev)", () => {
+  it("reuses one esbuild context per entry across rebuilds", async () => {
+    useFakeFs({ "default-template.hbs": "" });
+    const rebuilds = mockContexts({
+      "src/js/index.ts": () => metafile(output("assets/built/js/index.js", "src/js/index.ts", ["src/js/index.ts"])),
+    });
 
-    const result = await writeAssets(["src/js/index.ts"], 3000, true);
+    await writeAssets(["src/js/index.ts"], 3000, true);
+    await writeAssets(["src/js/index.ts"], 3000, true);
 
-    expect(result.results).toHaveLength(0);
-    expect(result.time).toBe(0);
+    expect(esbuild.context).toHaveBeenCalledTimes(1);
+    expect(rebuilds["src/js/index.ts"]).toHaveBeenCalledTimes(2);
   });
 
-  it("should throw error in production mode", async () => {
-    const mockEsbuild = vi.mocked(esbuild);
+  it("returns errors instead of throwing, and still builds the healthy entries", async () => {
+    useFakeFs({ "default-template.hbs": "" });
+    mockContexts({
+      "src/js/index.ts": () => {
+        throw Object.assign(new Error("fail"), {
+          errors: [{ text: "Expected identifier", location: { file: "src/js/index.ts", line: 3, column: 6 } }],
+          warnings: [],
+        });
+      },
+      "src/css/index.css": () => metafile(output("assets/built/css/index.css", "src/css/index.css", ["src/css/index.css"])),
+    });
+    files["assets/built/css/index.css"] = "a{}";
 
-    mockEsbuild.build.mockRejectedValue(new Error("Build failed"));
+    const result = await writeAssets(["src/js/index.ts", "src/css/index.css"], 3000, true);
 
-    vi.spyOn(console, "error").mockImplementation(() => {});
-
-    await expect(
-      writeAssets(["src/js/index.ts"], 3000, false),
-    ).rejects.toThrow("Build failed");
+    expect(result.errors).toEqual([
+      {
+        file: "src/js/index.ts",
+        text: "src/js/index.ts:3:6: Expected identifier",
+        pretty: "pretty: Expected identifier",
+      },
+    ]);
+    expect(result.outputs).toEqual(["assets/built/css/index.css"]);
   });
 
-  it("should handle multiple entry points", async () => {
-    const mockEsbuild = vi.mocked(esbuild);
+  it("reports CSS post-processing failures as errors", async () => {
+    useFakeFs({ "default-template.hbs": "", "assets/built/css/index.css": "a{}" });
+    mockContexts({
+      "src/css/index.css": () => metafile(output("assets/built/css/index.css", "src/css/index.css", ["src/css/index.css"])),
+    });
+    vi.mocked(transform).mockImplementationOnce(() => {
+      throw new Error("Unexpected token");
+    });
 
-    // writeAssets splits entries: mainEntry (src/js/index*) builds separately from others
-    // So esbuild.build is called twice with different entry sets
-    mockEsbuild.build
-      .mockResolvedValueOnce(
-        makeMetafile(
-          {
-            "assets/built/js/index.js": {
-              bytes: 512,
-              entryPoint: "src/js/index.ts",
-              inputs: { "src/js/index.ts": { bytesInOutput: 512 } },
-            },
-          },
-          { "src/js/index.ts": { bytes: 1024 } },
-        ) as any,
-      )
-      .mockResolvedValueOnce(
-        makeMetafile(
-          {
-            "assets/built/css/index.css": {
-              bytes: 256,
-              entryPoint: "src/css/index.css",
-              inputs: { "src/css/index.css": { bytesInOutput: 256 } },
-            },
-          },
-          { "src/css/index.css": { bytes: 512 } },
-        ) as any,
-      );
+    const result = await writeAssets(["src/css/index.css"], 3000, true);
 
-    const result = await writeAssets(
-      ["src/js/index.ts", "src/css/index.css"],
-      3000,
-      false,
-    );
-
-    expect(result.results).toHaveLength(2);
+    expect(result.errors?.[0].text).toContain("Unexpected token");
+    expect(result.errors?.[0].file).toBe("assets/built/css/index.css");
   });
 
-  it("should populate tree with input-to-entryPoint mapping", async () => {
-    const mockEsbuild = vi.mocked(esbuild);
+  it("does not touch default.hbs when only a non-critical asset was rebuilt", async () => {
+    useFakeFs({ "default-template.hbs": "<body></body>", "assets/built/css/index.css": "a{}" });
+    mockContexts({
+      "src/css/index.css": () => metafile(output("assets/built/css/index.css", "src/css/index.css", ["src/css/index.css"])),
+    });
 
-    mockEsbuild.build.mockResolvedValue(
-      makeMetafile(
-        {
-          "assets/built/js/index.js": {
-            bytes: 512,
-            entryPoint: "src/js/index.ts",
-            inputs: {
-              "src/js/index.ts": { bytesInOutput: 400 },
-              "src/js/util.ts": { bytesInOutput: 112 },
-            },
-          },
-        },
-        { "src/js/index.ts": { bytes: 1024 } },
-      ) as any,
-    );
+    const result = await writeAssets(["src/css/index.css"], 3000, true);
 
-    await writeAssets(["src/js/index.ts"], 3000, false);
-
-    expect(tree.get("src/js/index.ts")).toBe("src/js/index.ts");
-    expect(tree.get("src/js/util.ts")).toBe("src/js/index.ts");
+    expect(result.templateChanged).toBe(false);
+    expect("default.hbs" in files).toBe(false);
   });
 
-  it("should skip .map files in results", async () => {
-    const mockEsbuild = vi.mocked(esbuild);
+  it("re-renders default.hbs when a critical asset was rebuilt", async () => {
+    useFakeFs({
+      "default-template.hbs": `<head>${CSS_TAG}</head><body></body>`,
+      "assets/built/css/critical/index.css": "html{}",
+    });
+    mockContexts({
+      "src/css/critical/index.css": () =>
+        metafile(output("assets/built/css/critical/index.css", "src/css/critical/index.css", ["src/css/critical/index.css"])),
+    });
 
-    mockEsbuild.build.mockResolvedValue(
-      makeMetafile(
-        {
-          "assets/built/js/index.js": {
-            bytes: 512,
-            entryPoint: "src/js/index.ts",
-            inputs: { "src/js/index.ts": { bytesInOutput: 512 } },
-          },
-          "assets/built/js/index.js.map": {
-            bytes: 256,
-            inputs: { "src/js/index.ts": { bytesInOutput: 256 } },
-          },
-        },
-        { "src/js/index.ts": { bytes: 1024 } },
-      ) as any,
-    );
+    const result = await writeAssets(["src/css/critical/index.css"], 3000, true);
 
-    const result = await writeAssets(["src/js/index.ts"], 3000, false);
+    expect(result.templateChanged).toBe(true);
+    expect(files["default.hbs"]).toContain("<style>html{}</style>");
+  });
 
-    expect(result.results).toHaveLength(1);
-    expect(result.results[0].file).not.toContain(".map");
+  it("injects the live-reload client before </body> when asked to render", async () => {
+    useFakeFs({ "default-template.hbs": "<html><body>{{{body}}}</body></html>" });
+    mockContexts({});
+
+    await writeAssets([], 3456, true, undefined, { renderTemplate: true });
+
+    const hbs = files["default.hbs"];
+    expect(hbs).toContain(CLIENT_MARKER);
+    expect(hbs).toContain("var PORT = 3456;");
+    expect(hbs.indexOf(CLIENT_MARKER)).toBeLessThan(hbs.indexOf("</body>"));
+  });
+
+  it("maps a partial shared by several entries to all of them", async () => {
+    useFakeFs({ "default-template.hbs": "", "assets/built/css/index.css": "", "assets/built/css/critical/index.css": "" });
+    mockContexts({
+      "src/css/index.css": () =>
+        metafile(output("assets/built/css/index.css", "src/css/index.css", ["src/css/index.css", "src/css/card.css"])),
+      "src/css/critical/index.css": () =>
+        metafile(output("assets/built/css/critical/index.css", "src/css/critical/index.css", ["src/css/critical/index.css", "src/css/card.css"])),
+    });
+
+    await writeAssets(["src/css/index.css", "src/css/critical/index.css"], 3000, true);
+
+    expect(dependentsOf("src/css/card.css").sort()).toEqual(["src/css/critical/index.css", "src/css/index.css"]);
+    expect(dependentsOf("src/css/index.css")).toEqual(["src/css/index.css"]);
+  });
+
+  it("forgets imports an entry no longer has", async () => {
+    useFakeFs({ "default-template.hbs": "" });
+    let inputs = ["src/js/index.ts", "src/js/old.ts"];
+    mockContexts({
+      "src/js/index.ts": () => metafile(output("assets/built/js/index.js", "src/js/index.ts", inputs)),
+    });
+
+    await writeAssets(["src/js/index.ts"], 3000, true);
+    expect(dependentsOf("src/js/old.ts")).toEqual(["src/js/index.ts"]);
+
+    inputs = ["src/js/index.ts"];
+    await writeAssets(["src/js/index.ts"], 3000, true);
+    expect(tree.has("src/js/old.ts")).toBe(false);
   });
 });
 
 describe("inlineCritical", () => {
-  const CSS_TAG =
-    '<link rel="stylesheet" href="{{asset "built/css/critical/index.css"}}">';
+  it("inlines critical CSS", async () => {
+    useFakeFs({
+      "default-template.hbs": `<head>${CSS_TAG}</head>`,
+      "assets/built/css/critical/index.css": "/* critical css */",
+    });
 
-  const mockReadFile = vi.mocked(readFile);
-  const mockWriteFile = vi.mocked(writeFile);
-  const mockReaddirSync = vi.mocked(readdirSync);
-
-  beforeEach(() => {
-    vi.clearAllMocks();
+    expect(await inlineCritical()).toBe(true);
+    expect(files["default.hbs"]).toContain("<style>/* critical css */</style>");
   });
 
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  it("should inline critical CSS", async () => {
-    mockReadFile
-      .mockResolvedValueOnce(`<head>${CSS_TAG}</head>` as any)
-      .mockResolvedValueOnce("/* critical css */" as any);
-    mockReaddirSync.mockReturnValueOnce([] as any).mockReturnValueOnce([] as any);
-    mockWriteFile.mockResolvedValue();
-    vi.spyOn(console, "log").mockImplementation(() => {});
+  it("leaves the tag alone when the critical file is missing", async () => {
+    useFakeFs({ "default-template.hbs": `<head>${CSS_TAG}</head>` });
 
     await inlineCritical();
-
-    expect(mockWriteFile).toHaveBeenCalledWith(
-      "default.hbs",
-      expect.stringContaining("<style>/* critical css */</style>"),
-    );
+    expect(files["default.hbs"]).toContain(CSS_TAG);
   });
 
-  it("should not inline if tags not found", async () => {
-    mockReadFile
-      .mockResolvedValueOnce("no tags here" as any)
-      .mockRejectedValueOnce(new Error("Not found"));
-    mockReaddirSync.mockReturnValueOnce([] as any).mockReturnValueOnce([] as any);
-    mockWriteFile.mockResolvedValue();
-    vi.spyOn(console, "log").mockImplementation(() => {});
+  it("does not rewrite default.hbs when nothing changed", async () => {
+    useFakeFs({ "default-template.hbs": "<head></head>", "default.hbs": "<head></head>" });
+
+    expect(await inlineCritical()).toBe(false);
+    expect(writeFile).not.toHaveBeenCalled();
+  });
+
+  it("escapes Handlebars braces and keeps $ patterns literal", async () => {
+    useFakeFs({
+      "default-template.hbs": `<head>${JS_TAG}</head>`,
+      "assets/built/js/critical/index.js": "if(a){{b()}} x.replace(/a/, '$&');",
+    });
 
     await inlineCritical();
-
-    expect(mockWriteFile).toHaveBeenCalledWith(
-      "default.hbs",
-      expect.not.stringContaining("<style>"),
-    );
+    expect(files["default.hbs"]).toContain("<script>if(a)\\{{b()}} x.replace(/a/, '$&');</script>");
   });
 
-  it("should handle missing critical files", async () => {
-    mockReadFile
-      .mockResolvedValueOnce(`<head>${CSS_TAG}</head>` as any)
-      .mockRejectedValueOnce(new Error("Not found"));
-    mockReaddirSync.mockReturnValueOnce([] as any).mockReturnValueOnce([] as any);
-    mockWriteFile.mockResolvedValue();
-    vi.spyOn(console, "log").mockImplementation(() => {});
+  it("inlines every critical directory", async () => {
+    useFakeFs(
+      {
+        "default-template.hbs": `<head>${CSS_TAG}${HOME_CSS_TAG}</head>`,
+        "assets/built/css/critical/index.css": "/* default css */",
+        "assets/built/css/critical/home/index.css": "/* home css */",
+      },
+      { "assets/built/css/critical": ["home", "index"] },
+    );
 
     await inlineCritical();
-
-    expect(mockWriteFile).toHaveBeenCalledWith(
-      "default.hbs",
-      expect.stringContaining(CSS_TAG),
-    );
+    expect(files["default.hbs"]).toContain("<style>/* default css */</style>");
+    expect(files["default.hbs"]).toContain("<style>/* home css */</style>");
   });
 
-  it("should handle write errors gracefully", async () => {
-    mockReadFile.mockResolvedValueOnce("test content" as any);
-    mockWriteFile.mockRejectedValue(new Error("Write failed"));
-    vi.spyOn(console, "log").mockImplementation(() => {});
-    vi.spyOn(console, "error").mockImplementation(() => {});
+  it("survives write errors", async () => {
+    useFakeFs({ "default-template.hbs": "x" });
+    vi.mocked(writeFile).mockRejectedValue(new Error("Write failed"));
 
-    await expect(inlineCritical()).resolves.not.toThrow();
+    await expect(inlineCritical()).resolves.toBe(false);
   });
 });
 
 describe("BuildResult and CompilationDetails", () => {
-  it("should create BuildResult interface", () => {
-    const result: BuildResult = {
-      file: "src/built/js/index.js",
-      value: "512 bytes",
-    };
-
-    expect(result.file).toBe("src/built/js/index.js");
-    expect(result.value).toBe("512 bytes");
-  });
-
-  it("should create CompilationDetails interface", () => {
-    const details: CompilationDetails = {
-      results: [{ file: "src/built/js/index.js", value: "512 bytes" }],
-      time: 123.45,
-    };
-
-    expect(details.results).toHaveLength(1);
-    expect(details.time).toBe(123.45);
-  });
-});
-
-describe("inlineCritical - multiple templates", () => {
-  const CSS_TAG =
-    '<link rel="stylesheet" href="{{asset "built/css/critical/index.css"}}">';
-  const HOME_CSS_TAG =
-    '<link rel="stylesheet" href="{{asset "built/css/critical/home/index.css"}}">';
-
-  const mockReadFile = vi.mocked(readFile);
-  const mockWriteFile = vi.mocked(writeFile);
-  const mockReaddirSync = vi.mocked(readdirSync);
-
-  const INDEX_HOME_DIRS = [
-    { name: "index", isDirectory: () => true },
-    { name: "home", isDirectory: () => true },
-  ];
-
-  function setupIndexHomeDirs() {
-    mockReaddirSync
-      .mockReturnValueOnce(INDEX_HOME_DIRS as any)
-      .mockReturnValueOnce(INDEX_HOME_DIRS as any);
-  }
-
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mockReaddirSync.mockReset();
-    mockReaddirSync.mockReturnValue([]);
-  });
-
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  it("should inline CSS for all critical directories", async () => {
-    mockReadFile
-      .mockResolvedValueOnce(`<head>${CSS_TAG}${HOME_CSS_TAG}</head>` as any)
-      .mockResolvedValueOnce("/* default css */" as any)
-      .mockResolvedValueOnce("/* home css */" as any);
-    setupIndexHomeDirs();
-
-    await inlineCritical();
-
-    expect(mockWriteFile).toHaveBeenCalledWith(
-      "default.hbs",
-      expect.stringContaining("<style>/* default css */</style>"),
-    );
-    expect(mockWriteFile).toHaveBeenCalledWith(
-      "default.hbs",
-      expect.stringContaining("<style>/* home css */</style>"),
-    );
-  });
-
-  it("should skip directories without CSS files", async () => {
-    mockReadFile
-      .mockResolvedValueOnce(`<head>${CSS_TAG}${HOME_CSS_TAG}</head>` as any)
-      .mockRejectedValueOnce(new Error("ENOENT"));
-    setupIndexHomeDirs();
-
-    await inlineCritical();
-
-    expect(mockWriteFile).toHaveBeenCalledWith(
-      "default.hbs",
-      expect.stringContaining(CSS_TAG),
-    );
-  });
-
-  it("should skip tags not found in template", async () => {
-    mockReadFile
-      .mockResolvedValueOnce(`<head>${HOME_CSS_TAG}</head>` as any)
-      .mockResolvedValueOnce("/* default css */" as any)
-      .mockResolvedValueOnce("/* home css */" as any);
-    setupIndexHomeDirs();
-
-    await inlineCritical();
-
-    expect(mockWriteFile).toHaveBeenCalledWith(
-      "default.hbs",
-      expect.stringContaining("<style>/* home css */</style>"),
-    );
-    expect(mockWriteFile).toHaveBeenCalledWith(
-      "default.hbs",
-      expect.not.stringContaining(CSS_TAG),
-    );
-  });
-
-  it("should handle no critical directories found", async () => {
-    mockReadFile
-      .mockResolvedValueOnce(`<head>${CSS_TAG}</head>` as any)
-      .mockResolvedValueOnce("/* default css */" as any);
-    mockReaddirSync.mockReturnValueOnce([] as any).mockReturnValueOnce([] as any);
-
-    await inlineCritical();
-
-    expect(mockWriteFile).toHaveBeenCalledWith(
-      "default.hbs",
-      expect.stringContaining("<style>/* default css */</style>"),
-    );
+  it("has the expected shape", () => {
+    const result: BuildResult = { file: "assets/built/js/index.js", value: "512 bytes" };
+    const details: CompilationDetails = { results: [result], time: 1 };
+    expect(details.results[0]).toBe(result);
   });
 });

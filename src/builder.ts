@@ -2,10 +2,12 @@ import * as esbuild from "esbuild";
 import chalk from "chalk";
 import { readFile, writeFile } from "node:fs/promises";
 import { readdirSync } from "node:fs";
-import { transform, Features, browserslistToTargets } from "lightningcss";
+import { basename } from "node:path";
+import { transform, browserslistToTargets } from "lightningcss";
 import browserslist from "browserslist";
-import { formatBytes, GtbConfig, logToFile } from "./utils.js";
+import { formatBytes, GtbConfig, logToFile, findEntryPoints } from "./utils.js";
 import { EXTERNAL_ASSETS } from "./constants.js";
+import { clientScript } from "./client.js";
 
 // Browserslist browser name → esbuild engine name (unmapped browsers are skipped)
 const BROWSERSLIST_TO_ESBUILD: Record<string, string> = {
@@ -40,145 +42,296 @@ function browserslistToEsbuildTargets(browsers: string[]): string[] {
   return targets;
 }
 
-const BROWSERSLIST_QUERY = browserslist("baseline widely available");
-const BROWSER_TARGETS = browserslistToTargets(BROWSERSLIST_QUERY);
-const ESBUILD_TARGETS = browserslistToEsbuildTargets(BROWSERSLIST_QUERY);
+// Resolved on first build rather than at import, so commands that never build
+// (check, lint, doctor, deploy credentials errors) don't pay for browserslist.
+let browserTargets: { css: ReturnType<typeof browserslistToTargets>; js: string[] } | null = null;
+function getTargets() {
+  if (!browserTargets) {
+    const query = browserslist("baseline widely available");
+    browserTargets = {
+      css: browserslistToTargets(query),
+      js: browserslistToEsbuildTargets(query),
+    };
+  }
+  return browserTargets;
+}
 
 export interface BuildResult {
   file: string;
   value: string;
 }
 
+/** A build error or warning, formatted for the terminal (`pretty`) and the browser (`text`). */
+export interface BuildProblem {
+  file?: string;
+  text: string;
+  pretty: string;
+}
+
 export interface CompilationDetails {
   results: BuildResult[];
   time: number;
+  /** Output files written, e.g. `assets/built/css/index.css` (source maps excluded). */
+  outputs?: string[];
+  errors?: BuildProblem[];
+  warnings?: BuildProblem[];
+  /** True when default.hbs was rewritten with different content. */
+  templateChanged?: boolean;
 }
 
-export const tree = new Map<string, string>();
+export interface WriteAssetsOptions {
+  /** Re-render default.hbs even if no critical asset was rebuilt. */
+  renderTemplate?: boolean;
+}
 
-export async function inlineCritical(
-  criticalDir = "assets/built",
-  templatePath = "default-template.hbs",
-) {
+/**
+ * Source file → every entry point whose bundle includes it. A partial
+ * imported by several entries (e.g. by both critical and main CSS) maps to
+ * all of them, so a change rebuilds each one.
+ */
+export const tree = new Map<string, Set<string>>();
+
+export function dependentsOf(path: string): string[] {
+  return [...(tree.get(path) ?? [])];
+}
+
+function recordInputs(entryPoint: string, inputs: string[]) {
+  for (const dependents of tree.values()) dependents.delete(entryPoint);
+  for (const input of inputs) {
+    let dependents = tree.get(input);
+    if (!dependents) {
+      dependents = new Set();
+      tree.set(input, dependents);
+    }
+    dependents.add(entryPoint);
+  }
+  for (const [input, dependents] of tree) {
+    if (dependents.size === 0) tree.delete(input);
+  }
+}
+
+const SOURCE_MAP_COMMENT = /\n?(\/\/# sourceMappingURL=[^\n]*|\/\*# sourceMappingURL=[^*]*\*\/)\s*$/;
+
+/** Inlined code must not open a Handlebars expression. `\{{` renders a literal `{{`. */
+function escapeHandlebars(code: string): string {
+  return code.replace(/\{\{/g, "\\{{");
+}
+
+async function readOptional(path: string): Promise<string> {
   try {
-    let defaultTemplate = await readFile(templatePath, "utf8");
+    return await readFile(path, "utf8");
+  } catch {
+    return "";
+  }
+}
 
-    // Always process the default index.css path
-    let cssContent = "";
+function getCriticalDirs(builtDir: string): string[] {
+  const dirs = new Set<string>();
+  for (const kind of ["css", "js"]) {
     try {
-      cssContent = await readFile(
-        `${criticalDir}/css/critical/index.css`,
-        "utf8",
-      );
-    } catch (e) {
-      /* ignore */
+      readdirSync(`${builtDir}/${kind}/critical`, { withFileTypes: true })
+        .filter((d) => d.isDirectory())
+        .forEach((d) => dirs.add(d.name));
+    } catch {
+      /* no critical dir of this kind */
     }
+  }
+  return [...dirs];
+}
 
-    if (cssContent) {
-      const cssTag = `<link rel="stylesheet" href="{{asset "built/css/critical/index.css"}}">`;
-      if (defaultTemplate.includes(cssTag)) {
-        defaultTemplate = defaultTemplate.replace(
-          cssTag,
-          `<style>${cssContent}</style>`,
-        );
-        console.log(chalk.blue("⬥"), " Inlined critical CSS");
+/**
+ * Renders default-template.hbs to default.hbs: inlines critical CSS and JS
+ * and, during `gtb dev`, appends the live-reload client.
+ *
+ * Writes only when the output differs from what is on disk, so the watcher
+ * never sees a no-op change. Returns whether default.hbs changed.
+ */
+export async function inlineCritical(
+  builtDir = "assets/built",
+  templatePath = "default-template.hbs",
+  devPort?: number,
+  outputPath = "default.hbs",
+): Promise<boolean> {
+  try {
+    let template = await readFile(templatePath, "utf8");
+
+    const targets = ["", ...getCriticalDirs(builtDir).filter((d) => d !== "index")];
+
+    for (const dir of targets) {
+      const sub = dir ? `${dir}/` : "";
+      const label = dir ? ` for ${dir}` : "";
+
+      const cssTag = `<link rel="stylesheet" href="{{asset "built/css/critical/${sub}index.css"}}">`;
+      if (template.includes(cssTag)) {
+        const css = await readOptional(`${builtDir}/css/critical/${sub}index.css`);
+        if (css) {
+          const inline = `<style>${escapeHandlebars(css.replace(SOURCE_MAP_COMMENT, ""))}</style>`;
+          template = template.replace(cssTag, () => inline);
+          logToFile(`Inlined critical CSS${label}`);
+        }
       }
-    }
 
-    // Scan for additional critical directories (e.g. home, post)
-    const dirs = getCriticalDirs(criticalDir);
-
-    for (const dir of dirs) {
-      if (dir === "index") continue;
-
-      let dirCss = "";
-      try {
-        dirCss = await readFile(
-          `${criticalDir}/css/critical/${dir}/index.css`,
-          "utf8",
-        );
-      } catch (e) {
-        /* ignore */
-      }
-
-      if (dirCss) {
-        const cssTag = `<link rel="stylesheet" href="{{asset "built/css/critical/${dir}/index.css"}}">`;
-        if (defaultTemplate.includes(cssTag)) {
-          defaultTemplate = defaultTemplate.replace(
-            cssTag,
-            `<style>${dirCss}</style>`,
-          );
-          console.log(chalk.blue("⬥"), ` Inlined critical CSS for ${dir}`);
+      const jsTag = `<script src="{{asset "built/js/critical/${sub}index.js"}}"></script>`;
+      if (template.includes(jsTag)) {
+        const js = await readOptional(`${builtDir}/js/critical/${sub}index.js`);
+        if (js) {
+          const inline = `<script>${escapeHandlebars(js.replace(SOURCE_MAP_COMMENT, ""))}</script>`;
+          template = template.replace(jsTag, () => inline);
+          logToFile(`Inlined critical JS${label}`);
         }
       }
     }
 
-    await writeFile("default.hbs", defaultTemplate);
+    if (devPort) {
+      const client = clientScript(devPort);
+      const bodyClose = template.lastIndexOf("</body>");
+      template =
+        bodyClose === -1
+          ? `${template}\n${client}\n`
+          : `${template.slice(0, bodyClose)}${client}\n${template.slice(bodyClose)}`;
+    }
+
+    const current = await readOptional(outputPath);
+    if (current === template) return false;
+
+    await writeFile(outputPath, template);
+    return true;
   } catch (error) {
-    console.error(chalk.red("✘  Failed to inline critical assets:"), error);
+    console.error(chalk.red("✘  Failed to render default.hbs:"), error);
+    return false;
   }
 }
 
 async function postProcessCSS(
   cssFiles: string[],
   isWatch: boolean,
-): Promise<void> {
+): Promise<BuildProblem[]> {
+  const problems: BuildProblem[] = [];
   await Promise.all(
     cssFiles.map(async (file) => {
       try {
         const code = await readFile(file);
+        // Chain esbuild's map through lightningcss so the final map still
+        // points at the original src/ files.
+        const inputSourceMap = await readOptional(file + ".map");
         const result = transform({
           filename: file,
           code,
           minify: !isWatch,
           sourceMap: true,
-          targets: BROWSER_TARGETS,
+          inputSourceMap: inputSourceMap || undefined,
+          targets: getTargets().css,
         });
 
-        await writeFile(file, result.code);
-
+        let output = Buffer.from(result.code);
         if (result.map) {
-          const mapContent =
-            result.map instanceof Uint8Array
-              ? Buffer.from(result.map)
-              : JSON.stringify(
-                  typeof result.map === "object" ? result.map : {},
-                );
-          await writeFile(file + ".map", mapContent);
+          await writeFile(file + ".map", Buffer.from(result.map));
+          output = Buffer.concat([
+            output,
+            Buffer.from(`\n/*# sourceMappingURL=${basename(file)}.map */\n`),
+          ]);
         }
+        await writeFile(file, output);
       } catch (e) {
-        console.error(chalk.red("✘  CSS post-processing failed for"), file);
-        logToFile(
-          `CSS post-processing failed for ${file}: ${e instanceof Error ? e.message : String(e)}`,
-        );
+        const msg = e instanceof Error ? e.message : String(e);
+        logToFile(`CSS post-processing failed for ${file}: ${msg}`);
+        problems.push({
+          file,
+          text: `CSS post-processing failed: ${msg}`,
+          pretty: `${chalk.red("✘")}  CSS post-processing failed for ${file}: ${msg}`,
+        });
       }
     }),
   );
+  return problems;
 }
 
-function getCriticalDirs(criticalDir: string): string[] {
-  const cssDir = `${criticalDir}/css/critical`;
-  let entries: string[];
-
+async function toProblems(
+  messages: esbuild.Message[],
+  kind: "error" | "warning",
+): Promise<BuildProblem[]> {
+  if (messages.length === 0) return [];
+  let pretty: string[] = [];
   try {
-    entries = readdirSync(cssDir, { withFileTypes: true })
-      .filter((d) => d.isDirectory())
-      .map((d) => d.name);
+    pretty = await esbuild.formatMessages(messages, { kind, color: true });
   } catch {
-    return [];
+    /* fall back to plain text below */
+  }
+  return messages.map((m, i) => {
+    const loc = m.location;
+    const where = loc ? `${loc.file}:${loc.line}:${loc.column}: ` : "";
+    const text = `${where}${m.text}`;
+    return { file: loc?.file, text, pretty: pretty[i]?.trimEnd() || text };
+  });
+}
+
+async function problemsFromFailure(error: unknown): Promise<{ errors: BuildProblem[]; warnings: BuildProblem[] }> {
+  const failure = error as Partial<esbuild.BuildFailure>;
+  if (Array.isArray(failure?.errors) && failure.errors.length > 0) {
+    return {
+      errors: await toProblems(failure.errors, "error"),
+      warnings: await toProblems(failure.warnings ?? [], "warning"),
+    };
+  }
+  const msg = error instanceof Error ? error.message : String(error);
+  return { errors: [{ text: msg, pretty: msg }], warnings: [] };
+}
+
+function buildOptions(isWatch: boolean, config?: GtbConfig): esbuild.BuildOptions {
+  return {
+    bundle: true,
+    outbase: "src",
+    outdir: "assets/built",
+    minify: !isWatch,
+    sourcemap: true,
+    metafile: true,
+    target: getTargets().js,
+    external: EXTERNAL_ASSETS,
+    // Problems are returned and printed by gtb, after the screen is redrawn.
+    logLevel: "silent",
+    ...config?.esbuild,
+  };
+}
+
+// One incremental context per entry point while `gtb dev` runs.
+const contexts = new Map<string, esbuild.BuildContext>();
+
+/** Drops the cached build context for an entry that no longer exists. */
+export async function forgetEntry(entry: string): Promise<void> {
+  const ctx = contexts.get(entry);
+  contexts.delete(entry);
+  for (const dependents of tree.values()) dependents.delete(entry);
+  await ctx?.dispose();
+}
+
+export async function disposeContexts(): Promise<void> {
+  const all = [...contexts.values()];
+  contexts.clear();
+  await Promise.allSettled(all.map((c) => c.dispose()));
+}
+
+async function runBuilds(
+  entryPoints: string[],
+  isWatch: boolean,
+  config?: GtbConfig,
+): Promise<PromiseSettledResult<esbuild.BuildResult>[]> {
+  const options = buildOptions(isWatch, config);
+
+  if (!isWatch) {
+    return Promise.allSettled([esbuild.build({ ...options, entryPoints })]);
   }
 
-  // Deduplicate with js dir entries
-  try {
-    const jsEntries = readdirSync(`${criticalDir}/js/critical`, {
-      withFileTypes: true,
-    })
-      .filter((d) => d.isDirectory())
-      .map((d) => d.name);
-    return [...new Set([...entries, ...jsEntries])];
-  } catch {
-    return entries;
-  }
+  // Each entry builds on its own so one broken file can't hold back the rest.
+  return Promise.allSettled(
+    entryPoints.map(async (entry) => {
+      let ctx = contexts.get(entry);
+      if (!ctx) {
+        ctx = await esbuild.context({ ...options, entryPoints: [entry] });
+        contexts.set(entry, ctx);
+      }
+      return ctx.rebuild();
+    }),
+  );
 }
 
 export async function writeAssets(
@@ -186,110 +339,84 @@ export async function writeAssets(
   port: number,
   isWatch: boolean,
   config?: GtbConfig,
+  options: WriteAssetsOptions = {},
 ): Promise<CompilationDetails> {
   const start = performance.now();
-  const footerScript = `const socket = new WebSocket('ws://localhost:${port}');
-  socket.addEventListener("open", (event) => {
-      const url = window.location.href;
-      const title = document.title;
-      const version = document.querySelector('meta[name="generator"]')?.getAttribute("content");
-      const msg = JSON.stringify({url, title, version});
-      socket.send(msg)
-  });
-  socket.onmessage = function(event) {
-      if (event.data.includes('changed')) {
-        const data = event.data;
-        if (data.includes('.css')) {
-            // CSS Hot Injection
-            const links = document.querySelectorAll('link[rel="stylesheet"]');
-            for (const link of links) {
-                const url = new URL(link.href);
-                if (url.pathname.includes('built/css')) {
-                    const nextUrl = new URL(link.href);
-                    nextUrl.searchParams.set('v', Date.now());
-                    link.href = nextUrl.href;
-                }
-            }
-            console.log('CSS updated via Hot Injection');
-        } else {
-            // Full reload for JS and HBS
-            window.location.reload();
-        }
-      }
-  };`;
+  const results: BuildResult[] = [];
+  const outputs: string[] = [];
+  const cssFiles: string[] = [];
+  const errors: BuildProblem[] = [];
+  const warnings: BuildProblem[] = [];
 
-  const buildOptions: esbuild.BuildOptions = {
-    bundle: true,
-    outbase: "src",
-    outdir: "assets/built",
-    minify: !isWatch,
-    sourcemap: true,
-    metafile: true,
-    target: ESBUILD_TARGETS,
-    external: EXTERNAL_ASSETS,
-    ...config?.esbuild,
-  };
+  const settled = await runBuilds(entryPoints, isWatch, config);
 
-  const mainEntry = entryPoints.find(
-    (e) => e.includes("src/js/index") && !e.includes("/critical/"),
-  );
-  const otherEntries = entryPoints.filter((e) => e !== mainEntry);
-
-  const runBuild = async (entries: string[], withFooter: boolean) => {
-    const options = { ...buildOptions, entryPoints: entries };
-    if (withFooter && isWatch) {
-      options.footer = { js: footerScript };
-    }
-    return await esbuild.build(options);
-  };
-
-  try {
-    const results: BuildResult[] = [];
-    const cssFiles: string[] = [];
-
-    const builds = [];
-    if (mainEntry) {
-      builds.push(runBuild([mainEntry], true));
-    }
-    if (otherEntries.length > 0) {
-      builds.push(runBuild(otherEntries, false));
+  for (const outcome of settled) {
+    if (outcome.status === "rejected") {
+      const problems = await problemsFromFailure(outcome.reason);
+      errors.push(...problems.errors);
+      warnings.push(...problems.warnings);
+      continue;
     }
 
-    const resList = await Promise.all(builds);
+    const res = outcome.value;
+    warnings.push(...(await toProblems(res.warnings ?? [], "warning")));
+    if (!res.metafile) continue;
 
-    for (const res of resList) {
-      if (res.metafile) {
-        Object.entries(res.metafile.outputs).forEach(([key, value]) => {
-          if (key.endsWith(".map")) return;
-          results.push({ file: key, value: formatBytes(value.bytes) });
+    const inputsByEntry = new Map<string, string[]>();
+    for (const [key, value] of Object.entries(res.metafile.outputs)) {
+      if (key.endsWith(".map")) continue;
+      results.push({ file: key, value: formatBytes(value.bytes) });
+      outputs.push(key);
+      if (key.endsWith(".css")) cssFiles.push(key);
 
-          if (key.endsWith(".css")) {
-            cssFiles.push(key);
-          }
-
-          const { entryPoint, inputs } = value;
-          if (entryPoint && inputs && typeof inputs === "object") {
-            Object.keys(inputs).forEach((input) => {
-              tree.set(input, entryPoint);
-            });
-          }
-        });
+      const { entryPoint, inputs } = value;
+      if (entryPoint && inputs && typeof inputs === "object") {
+        const list = inputsByEntry.get(entryPoint) ?? [];
+        list.push(...Object.keys(inputs));
+        inputsByEntry.set(entryPoint, list);
       }
     }
-
-    if (cssFiles.length > 0) {
-      await postProcessCSS(cssFiles, isWatch);
-    }
-
-    await inlineCritical();
-
-    const end = performance.now();
-    return { results, time: end - start };
-  } catch (error: unknown) {
-    const msg = error instanceof Error ? error.message : String(error);
-    console.error(chalk.red("\n┃ Build failed:"), msg);
-    logToFile(`Build failed: ${msg}`);
-    if (!isWatch) throw error;
-    return { results: [], time: 0 };
+    for (const [entryPoint, inputs] of inputsByEntry) recordInputs(entryPoint, inputs);
   }
+
+  if (cssFiles.length > 0) {
+    errors.push(...(await postProcessCSS(cssFiles, isWatch)));
+  }
+
+  if (errors.length > 0) {
+    const summary = errors.map((e) => e.text).join("\n");
+    logToFile(`Build failed: ${summary}`);
+    if (!isWatch) {
+      for (const e of errors) console.error(e.pretty);
+      throw new Error(`Build failed:\n${summary}`);
+    }
+  }
+
+  // Production builds always render (stripping any dev client); dev builds
+  // only when a critical asset or the layout itself changed.
+  const touchesCritical = outputs.some((o) => o.includes("/critical/"));
+  let templateChanged = false;
+  if (!isWatch || options.renderTemplate || touchesCritical) {
+    templateChanged = await inlineCritical(
+      "assets/built",
+      "default-template.hbs",
+      isWatch ? port : undefined,
+    );
+  }
+
+  return {
+    results,
+    time: performance.now() - start,
+    outputs,
+    errors,
+    warnings,
+    templateChanged,
+  };
+}
+
+/** Production build of every entry point, as run by `gtb build`, `zip` and `deploy`. */
+export async function buildTheme(config?: GtbConfig): Promise<CompilationDetails> {
+  const jsEntryPoints = await findEntryPoints("src/js", [".ts", ".js"]);
+  const cssEntryPoints = await findEntryPoints("src/css", [".css"]);
+  return writeAssets([...jsEntryPoints, ...cssEntryPoints], 0, false, config);
 }

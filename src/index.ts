@@ -6,9 +6,8 @@ import confirm from "@inquirer/confirm";
 import { argv } from "node:process";
 import { getPortPromise } from "portfinder";
 import open from "open";
-import type { Stats } from "node:fs";
-import { findEntryPoints, loadConfig, optimizeImages, clearLogFile } from "./utils.js";
-import { writeAssets } from "./builder.js";
+import { findEntryPoints, loadConfig, optimizeImages, clearLogFile, isIgnoredPath } from "./utils.js";
+import { buildTheme, writeAssets } from "./builder.js";
 import { initWs, printCompilationDetails } from "./server.js";
 import {
   makeSkeleton,
@@ -21,27 +20,6 @@ import {
   deployTheme,
   runDoctor,
 } from "./cli.js";
-
-function ignored(path: string, stats?: Stats): boolean {
-  if (path !== "." && /(^|[/\\])\../.test(path)) return true;
-  const lowerPath = path.toLowerCase();
-  if (
-    lowerPath.includes("node_modules") ||
-    lowerPath.includes("dist") ||
-    lowerPath.includes("assets/built") ||
-    lowerPath.includes("assets\\built") ||
-    lowerPath.includes("postcss.config.js")
-  ) {
-    return true;
-  }
-  if (stats?.isFile()) {
-    return !/\.(hbs|css|js|ts|jpg|jpeg|png|webp|avif|svg|woff|woff2|ttf|otf)$/i.test(path);
-  }
-  if (/\.[^/\\]+$/.test(path)) {
-    return !/\.(hbs|css|js|ts)$/i.test(path);
-  }
-  return false;
-}
 
 async function init() {
   clearLogFile();
@@ -67,7 +45,7 @@ async function init() {
 
     console.log(`\n  ${chalk.bold("COMMANDS")}`);
     console.log(
-      `    dev          Start development server with live reload (default)`,
+      `    dev          Start development server with live reload`,
     );
     console.log(
       `    init         Scaffold a new theme and link to local Ghost`,
@@ -76,6 +54,7 @@ async function init() {
     console.log(`    check        Run theme validation using gscan`);
     console.log(`    lint         Run ESLint and Stylelint`);
     console.log(`    zip          Package theme into a zip file for upload`);
+    console.log(`    deploy       Zip and upload the theme via the Ghost Admin API`);
     console.log(`    doctor       Check system for common Ghost/gtb issues`);
 
     console.log(`\n  ${chalk.bold("OPTIONS")}`);
@@ -135,40 +114,12 @@ async function init() {
     return;
   }
 
-  const isWatch = argv.includes("--watch") || command === "dev";
+  const isWatch = argv.includes("--watch") || argv.includes("-w") || command === "dev";
 
-  const jsEntryPoints = await findEntryPoints("src/js", [".ts", ".js"]);
-  const cssEntryPoints = await findEntryPoints("src/css", [".css"]);
-
-  const port = isWatch ? await getPortPromise({ port: 3000 }) : 0;
-  const res = await writeAssets(
-    [...jsEntryPoints, ...cssEntryPoints],
-    port,
-    isWatch,
-    config,
-  );
-
-  if (isWatch) {
-    console.log(chalk.blue("⬥"), " Optimizing images...");
-    try {
-      await optimizeImages(process.cwd());
-    } catch (e) {
-      console.log(chalk.yellow("┃"), " Image optimization skipped or failed.");
-    }
-
-    const url = await parseGhostCliOutput();
-
-    const watcher = chokidar.watch(".", {
-      ignored,
-      ignoreInitial: true,
-    });
-    await initWs(res, port, url, watcher, config);
-
-    if (argv.includes("--open")) {
-      await open(url);
-    }
-  } else {
+  if (!isWatch) {
+    const res = await buildTheme(config);
     printCompilationDetails(res);
+    for (const w of res.warnings ?? []) console.log(w.pretty);
     console.log(chalk.blue("⬥"), " Optimizing images...");
     try {
       await optimizeImages(process.cwd());
@@ -178,9 +129,42 @@ async function init() {
     console.log(chalk.green("⬥"), "  Files built successfully. Exiting...");
     process.exit(0);
   }
+
+  const jsEntryPoints = await findEntryPoints("src/js", [".ts", ".js"]);
+  const cssEntryPoints = await findEntryPoints("src/css", [".css"]);
+  const entryPoints = [...jsEntryPoints, ...cssEntryPoints].map((p) => p.replace(/\\/g, "/"));
+
+  const port = await getPortPromise({ port: 3000 });
+  const res = await writeAssets(entryPoints, port, true, config, {
+    renderTemplate: true,
+  });
+
+  console.log(chalk.blue("⬥"), " Optimizing images...");
+  try {
+    await optimizeImages(process.cwd());
+  } catch (e) {
+    console.log(chalk.yellow("┃"), " Image optimization skipped or failed.");
+  }
+
+  const url = await parseGhostCliOutput();
+
+  const watcher = chokidar.watch(".", {
+    ignored: isIgnoredPath,
+    ignoreInitial: true,
+  });
+  await initWs(res, port, url, watcher, config, entryPoints);
+
+  if (argv.includes("--open") || argv.includes("-o")) {
+    await open(url);
+  }
 }
 
 init().catch((err) => {
-  console.error(err);
+  // Build failures were already printed with esbuild's code frames.
+  if (err instanceof Error && err.message.startsWith("Build failed")) {
+    console.error(chalk.red("✘  Build failed."));
+  } else {
+    console.error(err);
+  }
   process.exit(1);
 });
