@@ -88,7 +88,7 @@ Starts the dev server, watches all files, and opens your local Ghost site in the
 
 During `gtb dev`, a small client is added to `default.hbs` (it is removed by `gtb build`, `zip` and `deploy`). It logs what it does to the browser console, prefixed with `[gtb]`:
 
-- CSS changes are swapped in place without a reload. Changes to critical CSS/JS, templates, JS and images trigger a full reload.
+- CSS changes are swapped in place without a reload, including critical CSS: its inlined `<style>` block is updated directly. Changes to critical JS, other JS, templates and images trigger a full reload.
 - Build errors are shown in the terminal and the browser console, and the page keeps the previous version until the next successful build.
 - If the dev server restarts or the connection drops, the client reconnects and reloads.
 - Changes Ghost only picks up on restart (new root templates, `package.json`, `locales/`) are flagged in both places.

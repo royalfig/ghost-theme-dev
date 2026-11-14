@@ -28,6 +28,7 @@ vi.mock("../builder.js", () => {
     tree,
     writeAssets: vi.fn(),
     inlineCritical: vi.fn(async () => true),
+    readCriticalCss: vi.fn(async (path: string) => `/* ${path} */`),
     forgetEntry: vi.fn(async () => {}),
     dependentsOf: (path: string) => [...(tree.get(path) ?? [])],
   };
@@ -259,14 +260,46 @@ describe("initWs", () => {
     expect(vi.mocked(writeAssets).mock.calls[0][0].sort()).toEqual(["src/css/critical/index.css", "src/css/index.css"]);
   });
 
-  it("reloads instead of hot-swapping when a critical asset changed", async () => {
+  it("hot-swaps critical CSS by sending its contents for the inline <style>", async () => {
     const { fire, settle, sent } = await start(["src/css/critical/index.css"]);
+    tree.set("src/css/critical/color-vars.css", new Set(["src/css/critical/index.css"]));
     built(["assets/built/css/critical/index.css"]);
 
-    fire("change", "src/css/critical/index.css");
+    fire("change", "src/css/critical/color-vars.css");
     await settle();
 
-    expect(sent).toEqual([{ type: "reload", reason: "critical asset changed (inlined in default.hbs)" }]);
+    expect(sent).toEqual([
+      {
+        type: "css",
+        files: ["built/css/critical/index.css"],
+        source: "src/css/critical/color-vars.css",
+        inline: [{ file: "built/css/critical/index.css", css: "/* assets/built/css/critical/index.css */" }],
+      },
+    ]);
+  });
+
+  it("swaps critical and regular CSS together when a shared partial changes", async () => {
+    const { fire, settle, sent } = await start(["src/css/index.css", "src/css/critical/index.css"]);
+    tree.set("src/css/card.css", new Set(["src/css/index.css", "src/css/critical/index.css"]));
+    built(["assets/built/css/index.css", "assets/built/css/critical/index.css"]);
+
+    fire("change", "src/css/card.css");
+    await settle();
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0].type).toBe("css");
+    expect(sent[0].files).toEqual(["built/css/index.css", "built/css/critical/index.css"]);
+    expect(sent[0].inline.map((b: any) => b.file)).toEqual(["built/css/critical/index.css"]);
+  });
+
+  it("reloads when critical JS changed", async () => {
+    const { fire, settle, sent } = await start(["src/js/critical/index.ts"]);
+    built(["assets/built/js/critical/index.js"]);
+
+    fire("change", "src/js/critical/index.ts");
+    await settle();
+
+    expect(sent).toEqual([{ type: "reload", reason: "critical JS changed (inlined in default.hbs)" }]);
   });
 
   it("reloads on JS changes", async () => {

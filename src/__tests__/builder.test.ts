@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import {
   writeAssets,
   inlineCritical,
+  readCriticalCss,
   tree,
   dependentsOf,
   disposeContexts,
@@ -258,7 +259,8 @@ describe("writeAssets (dev)", () => {
     const result = await writeAssets(["src/css/critical/index.css"], 3000, true);
 
     expect(result.templateChanged).toBe(true);
-    expect(files["default.hbs"]).toContain("<style>html{}</style>");
+    // Labelled in dev so the client can swap the block in place.
+    expect(files["default.hbs"]).toContain('<style data-gtb-critical="built/css/critical/index.css">html{}</style>');
   });
 
   it("injects the live-reload client before </body> when asked to render", async () => {
@@ -352,6 +354,29 @@ describe("inlineCritical", () => {
     await inlineCritical();
     expect(files["default.hbs"]).toContain("<style>/* default css */</style>");
     expect(files["default.hbs"]).toContain("<style>/* home css */</style>");
+  });
+
+  it("labels each critical <style> with its built file in dev only", async () => {
+    useFakeFs(
+      {
+        "default-template.hbs": `<head>${CSS_TAG}${HOME_CSS_TAG}</head><body></body>`,
+        "assets/built/css/critical/index.css": "/* default css */",
+        "assets/built/css/critical/home/index.css": "/* home css */",
+      },
+      { "assets/built/css/critical": ["home"] },
+    );
+
+    await inlineCritical("assets/built", "default-template.hbs", 3000);
+    expect(files["default.hbs"]).toContain('<style data-gtb-critical="built/css/critical/index.css">/* default css */</style>');
+    expect(files["default.hbs"]).toContain('<style data-gtb-critical="built/css/critical/home/index.css">/* home css */</style>');
+
+    await inlineCritical();
+    expect(files["default.hbs"]).not.toContain("data-gtb-critical");
+  });
+
+  it("reads critical CSS for hot-swapping without the source map comment", async () => {
+    useFakeFs({ "assets/built/css/critical/index.css": "html{}\n/*# sourceMappingURL=index.css.map */\n" });
+    await expect(readCriticalCss("assets/built/css/critical/index.css")).resolves.toBe("html{}");
   });
 
   it("survives write errors", async () => {

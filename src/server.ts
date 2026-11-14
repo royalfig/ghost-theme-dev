@@ -8,6 +8,7 @@ import {
   dependentsOf,
   forgetEntry,
   inlineCritical,
+  readCriticalCss,
   tree,
   writeAssets,
 } from "./builder.js";
@@ -106,7 +107,13 @@ export function printHeader(
 
 /** Messages understood by the client in src/client.ts. */
 export type ClientMessage =
-  | { type: "css"; files: string[]; source: string }
+  | {
+      type: "css";
+      files: string[];
+      source: string;
+      /** Critical CSS inlined into default.hbs, swapped into its <style> block. */
+      inline?: { file: string; css: string }[];
+    }
   | { type: "reload"; reason: string }
   | { type: "error"; file?: string; message: string }
   | { type: "notice"; message: string };
@@ -302,17 +309,25 @@ export async function initWs(
     const outputs = build?.outputs ?? [];
 
     if (build && errors.length === 0) {
-      if (outputs.some((o) => o.includes("/critical/"))) {
-        reloadReasons.push("critical asset changed (inlined in default.hbs)");
+      // Critical CSS is swapped into its inline <style>; critical JS has
+      // already run before first paint, so only a reload re-applies it.
+      if (outputs.some((o) => o.endsWith(".js") && o.includes("/critical/"))) {
+        reloadReasons.push("critical JS changed (inlined in default.hbs)");
       }
       if (outputs.some((o) => o.endsWith(".js") && !o.includes("/critical/"))) {
         reloadReasons.push(`JS changed: ${sources.join(", ")}`);
       }
     }
 
-    const cssFiles = outputs
-      .filter((o) => o.endsWith(".css") && !o.includes("/critical/"))
-      .map((o) => o.replace(/^assets\//, ""));
+    const cssOutputs = outputs.filter((o) => o.endsWith(".css"));
+    // Critical CSS is listed in `files` too: if the template links it instead
+    // of inlining it (non-matching tag), the client swaps the <link>.
+    const cssFiles = cssOutputs.map((o) => o.replace(/^assets\//, ""));
+    const inline = await Promise.all(
+      cssOutputs
+        .filter((o) => o.includes("/critical/"))
+        .map(async (o) => ({ file: o.replace(/^assets\//, ""), css: await readCriticalCss(o) })),
+    );
 
     if (reloadReasons.length === 0 && notices.length === 0 && !build) return;
 
@@ -344,7 +359,12 @@ export async function initWs(
     if (reloadReasons.length > 0) {
       send(wss, { type: "reload", reason: reloadReasons.join("; ") });
     } else if (cssFiles.length > 0) {
-      send(wss, { type: "css", files: cssFiles, source: sources.join(", ") });
+      send(wss, {
+        type: "css",
+        files: cssFiles,
+        source: sources.join(", "),
+        ...(inline.length > 0 ? { inline } : {}),
+      });
     }
   }
 

@@ -7,7 +7,8 @@
  * literals that might be mistaken for anything by theme tooling).
  *
  * Messages from the dev server are JSON:
- *   { type: "css", files: ["built/css/index.css"], source: "src/css/card.css" }
+ *   { type: "css", files: ["built/css/index.css"], source: "src/css/card.css",
+ *     inline?: [{ file: "built/css/critical/index.css", css: "..." }] }
  *   { type: "reload", reason: "template changed: partials/card.hbs" }
  *   { type: "error", file?: "src/css/index.css", message: "..." }
  *   { type: "notice", message: "..." }
@@ -61,17 +62,39 @@ const CLIENT_SOURCE = `(function () {
     return matched;
   }
 
+  function swapInline(blocks) {
+    var styles = document.querySelectorAll("style[data-gtb-critical]");
+    var swapped = 0;
+    for (var i = 0; i < blocks.length; i++) {
+      for (var j = 0; j < styles.length; j++) {
+        if (styles[j].getAttribute("data-gtb-critical") === blocks[i].file) {
+          styles[j].textContent = blocks[i].css;
+          swapped += 1;
+        }
+      }
+    }
+    return swapped;
+  }
+
   function swapCss(msg) {
     var files = msg.files || [];
+    var started = performance.now();
+    var inlined = swapInline(msg.inline || []);
     var links = document.querySelectorAll('link[rel="stylesheet"]');
     var matched = matchLinks(files, links);
     var label = files.join(", ");
-    if (!matched.length) {
-      log("info", "CSS changed (" + label + ") but no matching <link> on this page, full reload");
+    if (!matched.length && !inlined) {
+      log("info", "CSS changed (" + label + ") but it isn't on this page, full reload");
       reload();
       return;
     }
-    var started = performance.now();
+    function done() {
+      var parts = [];
+      if (inlined) parts.push(inlined + " critical <style>");
+      if (matched.length) parts.push(matched.length + " of " + links.length + " stylesheets");
+      log("info", "CSS updated: " + label + " (swapped " + parts.join(" + ") + ", " + Math.round(performance.now() - started) + "ms)");
+    }
+    if (!matched.length) { done(); return; }
     var pending = matched.length;
     matched.forEach(function (link) {
       var next = link.cloneNode();
@@ -81,9 +104,7 @@ const CLIENT_SOURCE = `(function () {
       next.addEventListener("load", function () {
         if (link.parentNode) link.parentNode.removeChild(link);
         pending -= 1;
-        if (pending === 0) {
-          log("info", "CSS updated: " + label + " (swapped " + matched.length + " of " + links.length + " stylesheets, " + Math.round(performance.now() - started) + "ms)");
-        }
+        if (pending === 0) done();
       });
       next.addEventListener("error", function () {
         log("warn", "failed to load " + url.pathname + ", full reload");

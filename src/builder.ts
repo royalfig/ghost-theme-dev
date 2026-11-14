@@ -125,6 +125,17 @@ async function readOptional(path: string): Promise<string> {
   }
 }
 
+/** Attribute on inlined critical `<style>` blocks during `gtb dev`. */
+export const CRITICAL_ATTR = "data-gtb-critical";
+
+/**
+ * The CSS of a built critical stylesheet as it is inlined into default.hbs
+ * (without the source map comment), for hot-swapping it in the browser.
+ */
+export async function readCriticalCss(outputPath: string): Promise<string> {
+  return (await readOptional(outputPath)).replace(SOURCE_MAP_COMMENT, "");
+}
+
 function getCriticalDirs(builtDir: string): string[] {
   const dirs = new Set<string>();
   for (const kind of ["css", "js"]) {
@@ -165,7 +176,9 @@ export async function inlineCritical(
       if (template.includes(cssTag)) {
         const css = await readOptional(`${builtDir}/css/critical/${sub}index.css`);
         if (css) {
-          const inline = `<style>${escapeHandlebars(css.replace(SOURCE_MAP_COMMENT, ""))}</style>`;
+          // In dev, label the block so the client can swap its contents in place.
+          const attr = devPort ? ` ${CRITICAL_ATTR}="built/css/critical/${sub}index.css"` : "";
+          const inline = `<style${attr}>${escapeHandlebars(css.replace(SOURCE_MAP_COMMENT, ""))}</style>`;
           template = template.replace(cssTag, () => inline);
           logToFile(`Inlined critical CSS${label}`);
         }
