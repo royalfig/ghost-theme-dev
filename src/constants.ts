@@ -1,57 +1,82 @@
-export const GH_ACTION_CONTENT = `# Learn more → https://github.com/TryGhost/action-deploy-theme#getting-started
+// Files written by `gtb init`. Templates follow Ghost's Source theme
+// (github.com/TryGhost/Source) for anything Ghost-specific: members, social
+// accounts, image sizes, custom fonts and card assets.
+
+export const GH_ACTION_CONTENT = `# Builds the theme with gtb and uploads it to Ghost on every push to main.
+#
+# Setup: in Ghost Admin, go to Settings → Integrations → Add custom
+# integration, then add its Admin API URL and key to this repository as the
+# secrets GHOST_ADMIN_API_URL and GHOST_ADMIN_API_KEY.
+# Commit your package-lock.json: npm ci needs it.
+#
+# Learn more → https://github.com/TryGhost/action-deploy-theme#getting-started
 name: Build and deploy theme
+
 on:
   push:
     branches:
       - main
+
+permissions:
+  contents: read
+
 jobs:
-  build:
-    runs-on: ubuntu-22.04
+  deploy:
+    runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
         with:
-          node-version: '22'
+          node-version: "24"
+
       - run: npm ci
-      - run: npm run build
-      - name: Deploy theme
-        uses: TryGhost/action-deploy-theme@v1
+
+      # Production build, image optimization and packaging, same as locally
+      - run: npm run zip
+
+      - id: zip
+        run: echo "path=$(ls dist/*.zip | head -n 1)" >> "$GITHUB_OUTPUT"
+
+      - uses: TryGhost/action-deploy-theme@v2
         with:
           api-url: \${{ secrets.GHOST_ADMIN_API_URL }}
-          api-key: \${{ secrets.GHOST_ADMIN_API_KEY }}`;
+          api-key: \${{ secrets.GHOST_ADMIN_API_KEY }}
+          file: \${{ steps.zip.outputs.path }}
+`;
 
 export const DEFAULT_TEMPLATE_CONTENT = `<!DOCTYPE html>
 <html lang="{{@site.locale}}">
 <head>
-    <meta charset="utf-8" />
+    <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{{meta_title}}</title>
+    <title>{{meta_title page=(t " (Page %)")}}</title>
 
-    {{!-- Add preconnect for jsdelivr --}}
-    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
-    <link rel="dns-prefetch" href="https://cdn.jsdelivr.net">
-
-    {{!-- Critical script for dark mode to prevent flash. Replaced during build. --}}
+    {{!-- Critical JS and CSS: gtb inlines these two tags into default.hbs.
+         The script sets dark/light mode before first paint. --}}
     <script src="{{asset "built/js/critical/index.js"}}"></script>
     <link rel="stylesheet" href="{{asset "built/css/critical/index.css"}}">
 
+    {{!-- Everything else loads without blocking rendering --}}
     <script src="{{asset "built/js/index.js"}}" defer></script>
     <link rel="stylesheet" href="{{asset "built/css/index.css"}}" media="print" onload="this.media='all'">
+    <noscript><link rel="stylesheet" href="{{asset "built/css/index.css"}}"></noscript>
+
+    {{!-- SEO meta, structured data and Ghost's scripts. Keep it last in <head>. --}}
     {{ghost_head}}
 </head>
 <body class="{{body_class}}">
-
-    <div class="">
+    <div class="gh-site">
         {{> "header"}}
 
-        <main class="">
+        <main class="gh-main">
             {{{body}}}
         </main>
 
         {{> "footer"}}
     </div>
 
+    {{!-- Ghost's functional scripts (members, search, comments). Keep it last in <body>. --}}
     {{ghost_foot}}
 </body>
 </html>`;
@@ -59,28 +84,44 @@ export const DEFAULT_TEMPLATE_CONTENT = `<!DOCTYPE html>
 export const POST_TEMPLATE_CONTENT = `{{!< default}}
 
 {{#post}}
-<div class="{{post_class}}">
-    {{> "feature-image"}}
+<article class="gh-article {{post_class}}">
+    <header class="gh-article-header">
+        {{#primary_tag}}
+            <a class="gh-article-tag" href="{{url}}">{{name}}</a>
+        {{/primary_tag}}
+        <h1 class="gh-article-title">{{title}}</h1>
+        {{#if custom_excerpt}}
+            <p class="gh-article-excerpt">{{custom_excerpt}}</p>
+        {{/if}}
+        <div class="gh-article-meta">
+            <span class="gh-article-authors">{{authors}}</span>
+            <time datetime="{{date format="YYYY-MM-DD"}}">{{date}}</time>
+            {{#if reading_time}}
+                <span>{{reading_time minute=(t "1 min read") minutes=(t "% min read")}}</span>
+            {{/if}}
+        </div>
+        {{> "feature-image"}}
+    </header>
 
-    <section class="post-content">
+    <section class="gh-content">
         {{content}}
     </section>
 
     {{#if comments}}
-        <section class="post-comments">
+        <section class="gh-comments">
             {{comments}}
         </section>
     {{/if}}
-</div>
+</article>
 {{/post}}
 
-{{!-- Related posts --}}
+{{!-- Related posts. data-nosnippet keeps them out of search result snippets. --}}
 {{#if @custom.show_related_articles}}
-    {{#get "posts" include="authors" filter="id:-{{post.id}}" limit="4" as |related|}}
+    {{#get "posts" include="authors" filter="id:-{{post.id}}" limit="3" as |related|}}
         {{#if related}}
-            <section class="related-posts">
+            <section class="gh-related" data-nosnippet>
                 <h2>{{t "Read more"}}</h2>
-                <div class="post-feed">
+                <div class="gh-feed">
                     {{#foreach related}}
                         {{> "card"}}
                     {{/foreach}}
@@ -92,28 +133,26 @@ export const POST_TEMPLATE_CONTENT = `{{!< default}}
 
 export const INDEX_TEMPLATE_CONTENT = `{{!< default}}
 
-<section class="">
+<section class="gh-feed">
     {{#foreach posts}}
         {{> "card"}}
     {{/foreach}}
+</section>
 
-    {{pagination}}
-</section>`;
+{{pagination}}`;
 
 export const PAGE_TEMPLATE_CONTENT = `{{!< default}}
 
 {{#post}}
-<article class="{{post_class}}">
+<article class="gh-article {{post_class}}">
     {{#match @page.show_title_and_feature_image}}
-    <header class="">
-        <h1>
-            {{title}}
-        </h1>
-        {{> "feature-image"}}
-    </header>
+        <header class="gh-article-header">
+            <h1 class="gh-article-title">{{title}}</h1>
+            {{> "feature-image"}}
+        </header>
     {{/match}}
 
-    <section class="post-content">
+    <section class="gh-content">
         {{content}}
     </section>
 </article>
@@ -121,134 +160,283 @@ export const PAGE_TEMPLATE_CONTENT = `{{!< default}}
 
 export const AUTHOR_TEMPLATE_CONTENT = `{{!< default}}
 
-<section class="">
-    <div class="">
-        {{#author}}
-            {{!-- author header --}}
-        {{/author}}
+{{#author}}
+<header class="gh-archive">
+    {{#if profile_image}}
+        <img class="gh-author-image" src="{{img_url profile_image size="xs" format="webp"}}" alt="{{name}}">
+    {{/if}}
+    <h1>{{name}}</h1>
+    {{#if bio}}
+        <p>{{bio}}</p>
+    {{/if}}
+    <div class="gh-author-meta">
+        {{#if location}}
+            <span>{{location}}</span>
+        {{/if}}
+        {{#if website}}
+            <a href="{{website}}" target="_blank" rel="noopener">{{t "Website"}}</a>
+        {{/if}}
+        {{#social_accounts this}}
+            <a href="{{href}}" target="_blank" rel="noopener">{{name}}</a>
+        {{/social_accounts}}
     </div>
+</header>
+{{/author}}
 
-    <div class="">
-        {{#foreach posts}}
-            {{> "card"}}
-        {{/foreach}}
-    </div>
+<section class="gh-feed">
+    {{#foreach posts}}
+        {{> "card"}}
+    {{/foreach}}
+</section>
 
-    <div class="">
-        {{pagination}}
-    </div>
-</section>`;
+{{pagination}}`;
 
 export const TAG_TEMPLATE_CONTENT = `{{!< default}}
 
-<section class="">
-    <header class="">
-        {{#tag}}
-            <h1 class="">{{name}}</h1>
-            <p class="">
-                {{#if description}}
-                    {{description}}
-                {{else}}
-                    A collection of {{plural ../pagination.total empty='zero posts' uint='one post' other='% posts'}}
-                {{/if}}
-            </p>
-        {{/tag}}
-    </header>
+{{#tag}}
+<header class="gh-archive">
+    <h1>{{name}}</h1>
+    {{#if description}}
+        <p>{{description}}</p>
+    {{else}}
+        <p>{{plural ../pagination.total empty=(t "No posts") singular=(t "1 post") plural=(t "% posts")}}</p>
+    {{/if}}
+</header>
+{{/tag}}
 
-    <div class="">
-        {{#foreach posts}}
-            {{> "card"}}
-        {{/foreach}}
-    </div>
+<section class="gh-feed">
+    {{#foreach posts}}
+        {{> "card"}}
+    {{/foreach}}
+</section>
 
-    <div class="">
-        {{pagination}}
-    </div>
-</section>`;
+{{pagination}}`;
 
 export const ERROR_404_TEMPLATE_CONTENT = `{{!< default}}
 
-<section class="">
-    <h1 class="">404</h1>
-    <h2 class="">Page not found</h2>
-    <p class="">Sorry, we couldn't find the page you're looking for. It might have been moved or deleted.</p>
-    <a href="{{@site.url}}" class="">
-        Back to Home
-    </a>
+<section class="gh-error">
+    <h1>404</h1>
+    <h2>{{t "Page not found"}}</h2>
+    <p>{{t "Sorry, we couldn't find the page you're looking for."}}</p>
+    <a href="{{@site.url}}">{{t "Back to home"}}</a>
 </section>`;
 
-export const CARD_PARTIAL_CONTENT = `<article class="">
-    {{#if feature_image}}
-    <a href="{{url}}" class="">
-        
-    </a>
-    {{/if}}
-
-    <div class="">
-        <div class="">
+export const CARD_PARTIAL_CONTENT = `<article class="gh-card {{post_class}}">
+    <a class="gh-card-link" href="{{url}}">
+        {{#if feature_image}}
+            <img
+                class="gh-card-image"
+                srcset="{{img_url feature_image size="xs" format="webp"}} 160w,
+                        {{img_url feature_image size="s" format="webp"}} 320w,
+                        {{img_url feature_image size="m" format="webp"}} 600w"
+                sizes="(max-width: 600px) 100vw, 320px"
+                src="{{img_url feature_image size="m"}}"
+                alt="{{#if feature_image_alt}}{{feature_image_alt}}{{else}}{{title}}{{/if}}"
+                loading="lazy"
+            >
+        {{/if}}
+        <div class="gh-card-meta">
             {{#primary_tag}}
-                <span class="">{{name}}</span>
+                <span class="gh-card-tag">{{name}}</span>
             {{/primary_tag}}
-            <span class="">
-                <time datetime="{{date format='YYYY-MM-DD'}}">{{date format='D MMM YYYY'}}</time>
-            </span>
+            <time datetime="{{date format="YYYY-MM-DD"}}">{{date}}</time>
+            {{#if reading_time}}
+                <span>{{reading_time minute=(t "1 min read") minutes=(t "% min read")}}</span>
+            {{/if}}
         </div>
-
-        <a href="{{url}}">
-            <h2 class="">
-                {{title}}
-            </h2>
-        </a>
-        <p class="">
-            {{excerpt words="30"}}
-        </p>
-    </div>
+        <h2 class="gh-card-title">{{title}}</h2>
+        {{#if excerpt}}
+            <p class="gh-card-excerpt">{{excerpt words="30"}}</p>
+        {{/if}}
+    </a>
 </article>`;
 
-export const HEADER_PARTIAL_CONTENT = `<header class="">
-    {{navigation}}
-    
-    <div class="header-actions">
-        <button class="search-button" data-ghost-search>{{t "Search"}}</button>
-        {{#if @member}}
-            <a href="#/portal/account">{{t "Account"}}</a>
+export const HEADER_PARTIAL_CONTENT = `<header class="gh-header">
+    <a class="gh-header-logo" href="{{@site.url}}">
+        {{#if @site.logo}}
+            <img src="{{@site.logo}}" alt="{{@site.title}}">
         {{else}}
-            <a href="#/portal/signup">{{t "Subscribe"}}</a>
+            {{@site.title}}
+        {{/if}}
+    </a>
+
+    <nav class="gh-header-nav">
+        {{navigation}}
+    </nav>
+
+    <div class="gh-header-actions">
+        <button class="gh-search" type="button" aria-label="{{t "Search this site"}}" data-ghost-search>{{t "Search"}}</button>
+        {{> "dark-mode-toggle"}}
+
+        {{!-- Member links only when memberships are on; data-portal opens Ghost's Portal --}}
+        {{#if @site.members_enabled}}
+            {{#unless @member}}
+                <a href="#/portal/signin" data-portal="signin">{{t "Sign in"}}</a>
+                {{#unless @site.members_invite_only}}
+                    <a class="gh-button" href="#/portal/signup" data-portal="signup">{{t "Subscribe"}}</a>
+                {{/unless}}
+            {{else}}
+                <a class="gh-button" href="#/portal/account" data-portal="account">{{t "Account"}}</a>
+            {{/unless}}
         {{/if}}
     </div>
 </header>`;
 
-export const FOOTER_PARTIAL_CONTENT = `<footer class="">
-    <div class="">
-        <div class="">
-            <div>
-                &copy; {{date format='YYYY'}} {{@site.title}}. All rights reserved.
-            </div>
-            <div class="">
-                {{navigation type="secondary"}}
-            </div>
-        </div>
+export const FOOTER_PARTIAL_CONTENT = `<footer class="gh-footer">
+    {{#if @site.members_enabled}}
+        {{#unless @member}}
+            {{#unless @site.members_invite_only}}
+                <section class="gh-footer-signup">
+                    <h2>{{@site.title}}</h2>
+                    {{#if @site.description}}
+                        <p>{{@site.description}}</p>
+                    {{/if}}
+                    {{> "email-subscription" email_field_id="footer-email"}}
+                </section>
+            {{/unless}}
+        {{/unless}}
+    {{/if}}
+
+    {{!-- Social accounts set in Settings → General (Ghost 6.38+) --}}
+    <div class="gh-footer-social">
+        {{#social_accounts @site}}
+            <a href="{{href}}" target="_blank" rel="noopener" aria-label="{{name}}">{{name}}</a>
+        {{/social_accounts}}
+    </div>
+
+    <div class="gh-footer-bar">
+        <span>&copy; {{date format="YYYY"}} {{@site.title}}</span>
+        {{navigation type="secondary"}}
     </div>
 </footer>`;
 
-export const NAVIGATION_PARTIAL_CONTENT = `<ul class="">
+export const EMAIL_SUBSCRIPTION_PARTIAL_CONTENT = `{{!-- Ghost adds .loading, .success or .error to the form while it submits --}}
+<form class="gh-form" data-members-form="signup">
+    <label class="gh-visually-hidden" for="{{email_field_id}}">{{t "Your email address"}}</label>
+    <input id="{{email_field_id}}" type="email" name="email" placeholder="{{t "jamie@example.com"}}" required data-members-email>
+    <button type="submit">{{t "Subscribe"}}</button>
+    <p class="gh-form-success">{{t "Check your inbox to confirm your subscription."}}</p>
+    <p class="gh-form-error" data-members-error></p>
+</form>`;
+
+export const NAVIGATION_PARTIAL_CONTENT = `<ul class="gh-nav">
     {{#foreach navigation}}
-        <li class="{{link_class for=url class=(concat 'nav-' slug)}}">
-            <a href="{{url absolute='true'}}" class="">{{label}}</a>
+        <li class="{{link_class for=url class=(concat "nav-" slug)}}">
+            <a href="{{url absolute="true"}}">{{label}}</a>
         </li>
     {{/foreach}}
 </ul>`;
 
-export const GHOST_CSS_CONTENT = `/* Ghost image styles */
-.kg-width-wide img { max-width: 80vw; width: 100%; margin: 2rem auto; }
-.kg-width-full img { max-width: 100vw; width: 100%; margin: 2rem auto; }
-.kg-card figcaption { text-align: center; font-size: 0.8rem; margin-top: 0.5rem; opacity: 0.6; }`;
+export const FEATURE_IMAGE_PARTIAL_CONTENT = `{{!-- Above the fold on posts and pages, so it loads with high priority, not lazily --}}
+{{#if feature_image}}
+    <figure class="gh-feature-image">
+        <img
+            srcset="{{img_url feature_image size="s" format="webp"}} 320w,
+                    {{img_url feature_image size="m" format="webp"}} 600w,
+                    {{img_url feature_image size="l" format="webp"}} 960w,
+                    {{img_url feature_image size="xl" format="webp"}} 1200w,
+                    {{img_url feature_image size="xxl" format="webp"}} 2000w"
+            sizes="(max-width: 1200px) 100vw, 1200px"
+            src="{{img_url feature_image size="xl"}}"
+            alt="{{#if feature_image_alt}}{{feature_image_alt}}{{else}}{{title}}{{/if}}"
+            fetchpriority="high"
+        >
+        {{#if feature_image_caption}}
+            <figcaption>{{feature_image_caption}}</figcaption>
+        {{/if}}
+    </figure>
+{{/if}}`;
 
-export const INDEX_CSS_CONTENT = `@import "ghost.css";
+export const DARK_MODE_TOGGLE_HBS = `<button class="gtb-dark-mode-toggle" type="button" aria-label="{{t "Toggle dark mode"}}">
+    <span class="gtb-dark-mode">{{t "Dark"}}</span>
+    <span class="gtb-light-mode">{{t "Light"}}</span>
+</button>`;
 
+export const GHOST_CSS_CONTENT = `/* Wide and full-width cards in post content (required by Ghost) */
+.kg-width-wide img {
+  width: 100%;
+  max-width: 80vw;
+  margin: 2rem auto;
+}
+
+.kg-width-full img {
+  width: 100%;
+  max-width: 100vw;
+  margin: 2rem auto;
+}
+
+.kg-card figcaption {
+  margin-top: 0.5rem;
+  font-size: 0.8rem;
+  text-align: center;
+  opacity: 0.6;
+}
+
+/* Members signup form (partials/email-subscription.hbs) */
+.gh-form-success { display: none; }
+.gh-form.success .gh-form-success { display: block; }
+.gh-form.success input,
+.gh-form.success button { display: none; }
+.gh-form-error:empty { display: none; }
+
+.gh-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
 `;
 
-export const CRITICAL_CSS_CONTENT = `@import "reset.css";
+export const INDEX_CSS_CONTENT = `/* Main stylesheet. Files next to this one are partials: import them here. */
+@import "ghost.css";
+`;
+
+export const CRITICAL_CSS_CONTENT = `/* Inlined into default.hbs. Keep it to what the first screen needs. */
+@import "reset.css";
+@import "base.css";
+`;
+
+export const BASE_CSS_CONTENT = `/* data-mode is set before first paint by src/js/critical/index.ts */
+:root {
+  color-scheme: light;
+  --color-bg: #fff;
+  --color-text: #15171a;
+  --color-muted: #6b7280;
+  --color-accent: var(--ghost-accent-color, #ff1a75);
+
+  /* Fonts picked in Ghost Admin (Settings → Design → Brand) override these */
+  --font-body: var(--gh-font-body, system-ui, sans-serif);
+  --font-heading: var(--gh-font-heading, var(--font-body));
+}
+
+:root[data-mode="dark"] {
+  color-scheme: dark;
+  --color-bg: #15171a;
+  --color-text: #f3f4f6;
+  --color-muted: #9ca3af;
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-body);
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-heading);
+}
+
+a {
+  color: var(--color-accent);
+}
+
+/* The toggle shows the mode it switches to */
+:root[data-mode="dark"] .gtb-dark-mode,
+:root:not([data-mode="dark"]) .gtb-light-mode {
+  display: none;
+}
 `;
 
 export const CSS_RESET = `
@@ -302,12 +490,64 @@ h1, h2, h3, h4, h5, h6 {
 }
 `;
 
+export const INDEX_JS_CONTENT = `// Main script. Files next to this one are modules: import them here.
+import { darkModeHandler } from "./darkMode";
+
+darkModeHandler();
+`;
+
+export const DARK_MODE_CRITICAL_JS = `// Inlined into <head> by gtb, so it runs before first paint and the page never
+// flashes the wrong color scheme. The toggle button lives in src/js/darkMode.ts.
+const STORAGE_KEY = "gtb-dark-mode";
+const query = window.matchMedia("(prefers-color-scheme: dark)");
+
+function storedMode(): string | null {
+  try {
+    return localStorage.getItem(STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function systemMode(): "dark" | "light" {
+  return query.matches ? "dark" : "light";
+}
+
+document.documentElement.dataset.mode = storedMode() ?? systemMode();
+
+// Follow the system setting until the reader picks a mode with the toggle.
+query.addEventListener("change", () => {
+  if (!storedMode()) document.documentElement.dataset.mode = systemMode();
+});
+`;
+
+export const DARK_MODE_HANDLER_JS = `const STORAGE_KEY = "gtb-dark-mode";
+
+/** Wires up every .gtb-dark-mode-toggle (partials/dark-mode-toggle.hbs). */
+export function darkModeHandler(): void {
+  const buttons = document.querySelectorAll<HTMLButtonElement>(".gtb-dark-mode-toggle");
+
+  buttons.forEach((button) => {
+    button.addEventListener("click", () => {
+      const root = document.documentElement;
+      const next = root.dataset.mode === "dark" ? "light" : "dark";
+      root.dataset.mode = next;
+      try {
+        localStorage.setItem(STORAGE_KEY, next);
+      } catch {
+        // Storage unavailable (private mode): the choice lasts for this page only.
+      }
+    });
+  });
+}
+`;
+
 export const PACKAGE_JSON_TEMPLATE = (name: string) => `{
   "name": "${name}",
   "description": "A new Ghost theme",
   "version": "0.1.0",
   "engines": {
-    "ghost": ">=6.0.0"
+    "ghost": ">=6.38.0"
   },
   "author": {
     "name": "Example Name",
@@ -321,33 +561,25 @@ export const PACKAGE_JSON_TEMPLATE = (name: string) => `{
     "Theme"
   ],
   "config": {
-    "posts_per_page": 25,
+    "posts_per_page": 12,
+    "card_assets": true,
     "image_sizes": {
-      "50": {
-        "width": 50
+      "xs": {
+        "width": 160
       },
-      "100": {
-        "width": 100
+      "s": {
+        "width": 320
       },
-      "400": {
-        "width": 400
-      },
-      "600": {
+      "m": {
         "width": 600
       },
-      "800": {
-        "width": 800
+      "l": {
+        "width": 960
       },
-      "1000": {
-        "width": 1000
-      },
-      "1200": {
+      "xl": {
         "width": 1200
       },
-      "1600": {
-        "width": 1600
-      },
-      "2000": {
+      "xxl": {
         "width": 2000
       }
     },
@@ -360,38 +592,51 @@ export const PACKAGE_JSON_TEMPLATE = (name: string) => `{
   },
   "scripts": {
     "dev": "gtb dev",
-    "build": "gtb",
+    "build": "gtb build",
     "lint": "gtb lint",
     "check": "gtb check",
-    "zip": "gtb zip"
+    "zip": "gtb zip",
+    "deploy": "gtb deploy"
   },
   "devDependencies": {
-    "@royalfig/gtb": "latest",
-    "eslint": "^10.7.0",
     "@eslint/js": "^10.0.1",
-    "globals": "^17.7.0",
-    "@types/eslint__js": "^9.14.0",
-    "@types/node": "^26.1.1",
-    "typescript": "^7.0.2",
-    "typescript-eslint": "^8.63.0",
-    "stylelint": "^17.14.0",
+    "@royalfig/gtb": "^5.0.1",
+    "@types/node": "^26.6.6",
+    "eslint": "^10.15.0",
+    "globals": "^17.14.0",
+    "stylelint": "^17.16.0",
+    "stylelint-config-recess-order": "^7.10.0",
     "stylelint-config-standard": "^40.0.0",
-    "stylelint-config-recess-order": "^7.7.0"
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.72.2"
   },
   "type": "module"
 }
 `;
 
-export const ESLINT_CONFIG_TEMPLATE = `{
-  extends: [
-    "eslint:recommended",
-    "plugin:@typescript-eslint/recommended",
-    "plugin:@typescript-eslint/stylistic",
-  ],
-  rules: {
-    "no-console": 1,
+export const ESLINT_CONFIG_TEMPLATE = `// @ts-check
+import js from "@eslint/js";
+import { defineConfig, globalIgnores } from "eslint/config";
+import globals from "globals";
+import tseslint from "typescript-eslint";
+
+export default defineConfig([
+  globalIgnores(["assets/built/", "dist/"]),
+  {
+    files: ["**/*.{js,ts}"],
+    extends: [
+      js.configs.recommended,
+      tseslint.configs.recommended,
+      tseslint.configs.stylistic,
+    ],
+    languageOptions: {
+      globals: globals.browser,
+    },
+    rules: {
+      "no-console": "warn",
+    },
   },
-}
+]);
 `;
 
 export const STYLELINT_CONFIG_TEMPLATE = `{
@@ -401,98 +646,6 @@ export const STYLELINT_CONFIG_TEMPLATE = `{
     "hue-degree-notation": "number"
   }
 }`;
-
-export const DARK_MODE_CRITICAL_JS = `function toggleDarkModeShareButton(newMode: string) {
-  const shareButton = document.querySelector("share-button");
-
-  if (!shareButton) {
-    return;
-  }
-
-  const modeAsBool = newMode === "dark" ? "true" : "false";
-  shareButton?.setAttribute("dark-mode", modeAsBool);
-}
-
-function autoDarkMode() {
-  if (
-    window.matchMedia &&
-    window.matchMedia("(prefers-color-scheme: dark)").matches
-  ) {
-    document.documentElement.dataset.mode = "dark";
-  } else {
-    document.documentElement.dataset.mode = "light";
-  }
-}
-
-function setDarkMode() {
-  const prefers = localStorage.getItem("s-dark-mode");
-  if (prefers) {
-    document.documentElement.dataset.mode = prefers;
-  } else {
-    autoDarkMode();
-  }
-}
-
-window
-  .matchMedia("(prefers-color-scheme: dark)")
-  .addEventListener("change", (e) => {
-    const prefers = localStorage.getItem("s-dark-mode");
-
-    // Abort if user has already set a preference
-    if (prefers) {
-      return;
-    }
-
-    if (e.matches) {
-      toggleDarkModeShareButton("dark");
-    } else {
-      toggleDarkModeShareButton("light");
-    }
-    autoDarkMode();
-  });
-
-setDarkMode();`;
-
-export const DARK_MODE_HANDLER_JS = `export function darkModeHandler() {
-  const darkModeToggleButton = document.querySelectorAll(".s-dark-mode-toggle");
-
-  if (!darkModeToggleButton) {
-    return;
-  }
-
-  const mode = document.documentElement.dataset.mode!;
-  toggleDarkModeShareButton(mode);
-
-  Array.from(darkModeToggleButton).map((btn) =>
-    btn.addEventListener("click", () => {
-      const newMode = invertMode();
-      toggleDarkModeShareButton(newMode);
-      document.documentElement.dataset.mode = newMode;
-      localStorage.setItem("s-dark-mode", newMode);
-    })
-  );
-}
-
-export function toggleDarkModeShareButton(newMode: string) {
-  const shareButton = document.querySelector("share-button");
-
-  if (!shareButton) {
-    return;
-  }
-
-  const modeAsBool = newMode === "dark" ? "true" : "false";
-  shareButton?.setAttribute("dark-mode", modeAsBool);
-}
-
-export function invertMode() {
-  const currentMode = document.documentElement.dataset.mode!;
-  return currentMode === "dark" ? "light" : "dark";
-}`;
-
-export const DARK_MODE_TOGGLE_HBS = `<button class="gtb-dark-mode-toggle" aria-label="Toggle dark mode">
-    <span class="gtb-dark-mode">Dark</span>
-    <span class="gtb-light-mode">Light</span>
-</button>`;
 
 export const EXTERNAL_ASSETS = [
   "*.png",
@@ -506,33 +659,39 @@ export const EXTERNAL_ASSETS = [
   "*.otf",
 ] as const;
 
-export const FEATURE_IMAGE_PARTIAL_CONTENT = `{{#if feature_image}}
-    <figure class="post-feature-image">
-        <img
-            srcset="{{img_url feature_image size="s"}} 300w,
-                    {{img_url feature_image size="m"}} 600w,
-                    {{img_url feature_image size="l"}} 1000w,
-                    {{img_url feature_image size="xl"}} 2000w"
-            sizes="(max-width: 1000px) 400px, 800px"
-            src="{{img_url feature_image size="m"}}"
-            alt="{{#if feature_image_alt}}{{feature_image_alt}}{{else}}{{title}}{{/if}}"
-            loading="lazy"
-        />
-        {{#if feature_image_caption}}
-            <figcaption>{{feature_image_caption}}</figcaption>
-        {{/if}}
-    </figure>
-{{/if}}`;
-
 export const LOCALES_EN_JSON_CONTENT = `{
-    "Search": "Search",
-    "Subscribe": "Subscribe",
+    " (Page %)": " (Page %)",
+    "1 min read": "1 min read",
+    "% min read": "% min read",
+    "% posts": "% posts",
+    "1 post": "1 post",
     "Account": "Account",
-    "Read more": "Read more"
-}`;
+    "Back to home": "Back to home",
+    "Check your inbox to confirm your subscription.": "Check your inbox to confirm your subscription.",
+    "Dark": "Dark",
+    "jamie@example.com": "jamie@example.com",
+    "Light": "Light",
+    "No posts": "No posts",
+    "Page not found": "Page not found",
+    "Read more": "Read more",
+    "Search": "Search",
+    "Search this site": "Search this site",
+    "Sign in": "Sign in",
+    "Sorry, we couldn't find the page you're looking for.": "Sorry, we couldn't find the page you're looking for.",
+    "Subscribe": "Subscribe",
+    "Toggle dark mode": "Toggle dark mode",
+    "Website": "Website",
+    "Your email address": "Your email address"
+}
+`;
 
 export const GITIGNORE_CONTENT = `node_modules
+dist
 assets/built
 .DS_Store
+.env*
 
-.env`;
+# Generated by gtb
+default.hbs
+gtb-debug.log
+`;

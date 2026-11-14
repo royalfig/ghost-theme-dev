@@ -52,6 +52,9 @@ import {
   CSS_RESET,
   FEATURE_IMAGE_PARTIAL_CONTENT,
   LOCALES_EN_JSON_CONTENT,
+  EMAIL_SUBSCRIPTION_PARTIAL_CONTENT,
+  BASE_CSS_CONTENT,
+  INDEX_JS_CONTENT,
 } from "./constants.js";
 
 export async function runNpmInstall() {
@@ -83,10 +86,7 @@ export async function makeSkeleton() {
     { filename: "default-template.hbs", content: DEFAULT_TEMPLATE_CONTENT },
     { filename: "src/css/ghost.css", content: GHOST_CSS_CONTENT },
     { filename: "src/css/index.css", content: INDEX_CSS_CONTENT },
-    {
-      filename: "src/js/index.ts",
-      content: "console.log('Hello World');",
-    },
+    { filename: "src/js/index.ts", content: INDEX_JS_CONTENT },
     { filename: "src/js/darkMode.ts", content: DARK_MODE_HANDLER_JS },
     { filename: "src/js/critical/index.ts", content: DARK_MODE_CRITICAL_JS },
     { filename: "partials/header.hbs", content: HEADER_PARTIAL_CONTENT },
@@ -108,15 +108,20 @@ export async function makeSkeleton() {
       filename: "src/css/critical/reset.css",
       content: CSS_RESET,
     },
+    { filename: "src/css/critical/base.css", content: BASE_CSS_CONTENT },
+    {
+      filename: "partials/email-subscription.hbs",
+      content: EMAIL_SUBSCRIPTION_PARTIAL_CONTENT,
+    },
     {
       filename: ".vscode/extensions.json",
       content: `{"recommendations": ["TryGhost.ghost"]}`,
     },
-    { filename: ".github/deploy-theme.yaml", content: GH_ACTION_CONTENT },
+    { filename: ".github/workflows/deploy-theme.yml", content: GH_ACTION_CONTENT },
     { filename: "partials/feature-image.hbs", content: FEATURE_IMAGE_PARTIAL_CONTENT },
     { filename: "locales/en.json", content: LOCALES_EN_JSON_CONTENT },
     { filename: "package.json", content: PACKAGE_JSON_TEMPLATE(themeName) },
-    { filename: ".eslintrc.json", content: ESLINT_CONFIG_TEMPLATE },
+    { filename: "eslint.config.js", content: ESLINT_CONFIG_TEMPLATE },
     { filename: ".stylelintrc.json", content: STYLELINT_CONFIG_TEMPLATE },
     { filename: ".gitignore", content: GITIGNORE_CONTENT },
   ];

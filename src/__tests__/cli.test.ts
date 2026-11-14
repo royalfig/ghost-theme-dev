@@ -1,3 +1,4 @@
+import { relative } from "node:path";
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import {
   makeSkeleton,
@@ -135,6 +136,41 @@ describe("CLI Commands", () => {
 
       expect(vi.mocked(writeFile)).toHaveBeenCalled();
       expect(vi.mocked(mkdir)).toHaveBeenCalled();
+    });
+
+    it("writes a skeleton that works with current Ghost, ESLint and GitHub", async () => {
+      vi.mocked(access).mockRejectedValue(new Error("ENOENT"));
+      vi.mocked(mkdir).mockResolvedValue(undefined);
+      vi.mocked(writeFile).mockResolvedValue();
+
+      await makeSkeleton();
+
+      const written = new Map(
+        vi.mocked(writeFile).mock.calls.map(([path, content]) => [
+          relative(process.cwd(), String(path)).replace(/\\/g, "/"),
+          String(content),
+        ]),
+      );
+      const paths = [...written.keys()];
+
+      // GitHub only runs workflows from .github/workflows; ESLint 10 only reads flat config.
+      expect(paths).toContain(".github/workflows/deploy-theme.yml");
+      expect(paths).toContain("eslint.config.js");
+      expect(paths).not.toContain(".eslintrc.json");
+
+      // darkMode.ts is a partial: index.ts must import and run it.
+      expect(written.get("src/js/index.ts")).toContain('import { darkModeHandler } from "./darkMode"');
+      expect(written.get("src/js/darkMode.ts")).toContain(".gtb-dark-mode-toggle");
+      expect(written.get("partials/header.hbs")).toContain('{{> "dark-mode-toggle"}}');
+
+      const pkg = JSON.parse(written.get("package.json")!);
+      expect(pkg.scripts.build).toBe("gtb build");
+      expect(pkg.config.card_assets).toBe(true);
+      // Every size the templates ask for must be defined, or Ghost serves the original.
+      const used = new Set(
+        [...written.values()].flatMap((c) => [...c.matchAll(/img_url \w+ size="(\w+)"/g)].map((m) => m[1])),
+      );
+      for (const size of used) expect(Object.keys(pkg.config.image_sizes)).toContain(size);
     });
 
     it("should not overwrite existing files", async () => {
