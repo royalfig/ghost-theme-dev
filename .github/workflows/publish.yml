@@ -1,5 +1,9 @@
 name: Publish to npm
 
+# Publishes with npm trusted publishing (OIDC): no npm token is stored in the
+# repo. The trusted publisher is configured on npmjs.com for this workflow
+# file, so keep the filename as publish.yml.
+
 on:
   push:
     tags:
@@ -14,15 +18,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: "24"
+          node-version: "24" # ships npm >= 11.5.1, required for trusted publishing
           registry-url: "https://registry.npmjs.org"
+          package-manager-cache: false # never use caching in release builds
 
       - run: npm install -g pnpm
       - run: pnpm install --frozen-lockfile
-      - run: npm run build
+      - run: pnpm typecheck
+      - run: pnpm test --run
 
+      # prepublishOnly cleans and rebuilds dist
       - name: Publish to npm
         run: npm publish

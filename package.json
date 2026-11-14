@@ -10,9 +10,13 @@
     "test:coverage": "vitest --coverage",
     "start": "node dist/index.js",
     "build": "tsc",
+    "typecheck": "tsc -p tsconfig.test.json",
     "dev": "tsx watch src/index.ts",
     "clean": "rm -rf dist",
     "prepublishOnly": "npm run clean && npm run build"
+  },
+  "engines": {
+    "node": ">=22.22"
   },
   "bin": {
     "gtb": "dist/index.js"
@@ -20,6 +24,7 @@
   "files": [
     "dist",
     "src",
+    "!src/**/__tests__",
     "README.md",
     "LICENSE"
   ],
@@ -35,32 +40,32 @@
   "author": "Ryan Feigenbaum",
   "license": "MIT",
   "dependencies": {
-    "@inquirer/confirm": "6.1.1",
-    "@inquirer/input": "5.1.2",
-    "@inquirer/select": "5.2.1",
-    "@tryghost/admin-api": "^1.14.11",
+    "@inquirer/confirm": "6.4.0",
+    "@inquirer/input": "5.2.0",
+    "@inquirer/select": "5.3.0",
+    "@tryghost/admin-api": "^1.14.16",
     "archiver": "8.0.0",
-    "browserslist": "^4.28.6",
-    "chalk": "5.6.2",
-    "chokidar": "5.0.0",
-    "esbuild": "0.28.1",
-    "gscan": "6.4.1",
-    "lightningcss": "^1.32.0",
-    "open": "^11.0.0",
+    "browserslist": "^4.29.5",
+    "chalk": "6.0.1",
+    "chokidar": "6.0.0",
+    "esbuild": "0.28.2",
+    "gscan": "6.7.0",
+    "lightningcss": "^1.33.0",
+    "open": "^11.0.4",
     "portfinder": "1.0.38",
-    "sharp": "0.35.3",
-    "ws": "8.21.0"
+    "sharp": "0.35.5",
+    "ws": "8.23.0"
   },
   "devDependencies": {
     "@types/archiver": "^8.0.0",
-    "@types/node": "26.1.1",
-    "@types/ws": "^8.18.1",
-    "@vitest/ui": "^4.1.10",
-    "jsdom": "^29.1.1",
-    "tsx": "^4.23.0",
+    "@types/node": "26.6.6",
+    "@types/ws": "^8.18.2",
+    "@vitest/ui": "^5.1.0",
+    "jsdom": "^31.0.1",
+    "tsx": "^4.23.15",
     "typescript": "^7.0.2",
-    "vite": "^8.1.4",
-    "vitest": "^4.1.10"
+    "vite": "^8.3.8",
+    "vitest": "^5.1.0"
   },
   "repository": {
     "type": "git",

@@ -135,7 +135,7 @@ export default {
 
 ## Requirements
 
-- **Node.js**: v18, v20, or v22 (LTS versions). gtb will warn you if your Node version is incompatible with Ghost.
+- **Node.js**: v22.22 or later (Ghost 6 runs on Node 22).
 - **Ghost CLI**: Required for local development features (`init`, `dev`).
 
 ---
