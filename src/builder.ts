@@ -77,6 +77,11 @@ export interface CompilationDetails {
   warnings?: BuildProblem[];
   /** True when default.hbs was rewritten with different content. */
   templateChanged?: boolean;
+  /**
+   * Dev only: entries whose esbuild build failed. Their import graph wasn't
+   * recorded, so the watcher retries them on the next source change.
+   */
+  failedEntries?: string[];
 }
 
 export interface WriteAssetsOptions {
@@ -362,9 +367,12 @@ export async function writeAssets(
   const warnings: BuildProblem[] = [];
 
   const settled = await runBuilds(entryPoints, isWatch, config);
+  const failedEntries: string[] = [];
 
-  for (const outcome of settled) {
+  for (const [i, outcome] of settled.entries()) {
     if (outcome.status === "rejected") {
+      // In dev each entry builds alone, so outcome i belongs to entry i.
+      if (isWatch) failedEntries.push(entryPoints[i]);
       const problems = await problemsFromFailure(outcome.reason);
       errors.push(...problems.errors);
       warnings.push(...problems.warnings);
@@ -424,6 +432,7 @@ export async function writeAssets(
     errors,
     warnings,
     templateChanged,
+    ...(isWatch ? { failedEntries } : {}),
   };
 }
 

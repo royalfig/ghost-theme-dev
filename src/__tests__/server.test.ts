@@ -394,6 +394,47 @@ describe("initWs", () => {
     expect(sent[0].message).toContain("orphan.css");
   });
 
+  it("retries a failed entry on the next source change, learning its new imports", async () => {
+    const { fire, settle, sent } = await start();
+    // index.ts gained `import "./search"`, but the build failed (unresolved dependency).
+    vi.mocked(writeAssets).mockResolvedValueOnce({
+      results: [], time: 1, outputs: [], warnings: [], failedEntries: ["src/js/index.ts"],
+      errors: [{ file: "src/js/search.ts", text: 'Could not resolve "minisearch"', pretty: "" }],
+    });
+    fire("change", "src/js/index.ts");
+    await settle();
+
+    // After installing the package, saving search.ts retries index.ts.
+    vi.mocked(writeAssets).mockImplementationOnce(async () => {
+      tree.set("src/js/search.ts", new Set(["src/js/index.ts"]));
+      return { results: [], time: 1, outputs: ["assets/built/js/index.js"], errors: [], warnings: [], failedEntries: [] };
+    });
+    sent.length = 0;
+    fire("change", "src/js/search.ts");
+    await settle();
+
+    expect(vi.mocked(writeAssets).mock.calls[1][0]).toEqual(["src/js/index.ts"]);
+    expect(sent).toEqual([{ type: "reload", reason: "JS changed: src/js/search.ts" }]);
+  });
+
+  it("doesn't call a file unimported while an entry is still failing", async () => {
+    const { fire, settle, sent } = await start();
+    vi.mocked(writeAssets).mockResolvedValue({
+      results: [], time: 1, outputs: [], warnings: [], failedEntries: ["src/js/index.ts"],
+      errors: [{ file: "src/js/index.ts", text: "Unexpected }", pretty: "" }],
+    });
+    fire("change", "src/js/index.ts");
+    await settle();
+    sent.length = 0;
+
+    fire("change", "src/js/search.ts");
+    await settle();
+
+    expect(vi.mocked(writeAssets).mock.calls[1][0]).toEqual(["src/js/index.ts"]);
+    expect(sent.some((m) => m.type === "notice")).toBe(false);
+    expect(sent[0]).toMatchObject({ type: "error" });
+  });
+
   it("normalizes Windows paths", async () => {
     const { fire, settle } = await start();
     built(["assets/built/css/index.css"]);

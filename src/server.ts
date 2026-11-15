@@ -191,6 +191,9 @@ export async function initWs(
   });
 
   const entries = new Set(initialEntries);
+  // Entries whose last build failed: their imports are unknown, so any
+  // source change retries them (e.g. a new import that couldn't resolve yet).
+  const failed = new Set(res.failedEntries ?? []);
   let firstConnection = true;
   const pending = new Map<string, string>();
   let debounce: ReturnType<typeof setTimeout> | null = null;
@@ -219,6 +222,7 @@ export async function initWs(
     const imageLines: string[] = [];
     const toBuild = new Set<string>();
     const sources: string[] = [];
+    const unknown: string[] = [];
     let renderLayout = false;
 
     const sourceAddedOrRemoved = [...batch].some(
@@ -253,9 +257,7 @@ export async function initWs(
           }
           affected.forEach((e) => toBuild.add(e));
           if (event === "unlink") tree.delete(path);
-          if (affected.length === 0 && event !== "unlink") {
-            notices.push(`${path} isn't imported by any entry point, so nothing was rebuilt.`);
-          }
+          if (affected.length === 0 && event !== "unlink") unknown.push(path);
           break;
         }
 
@@ -295,6 +297,10 @@ export async function initWs(
       }
     }
 
+    if (sources.length > 0) {
+      for (const e of failed) if (entries.has(e)) toBuild.add(e);
+    }
+
     let build: CompilationDetails | null = null;
     if (toBuild.size > 0) {
       logToFile(`Rebuilding ${[...toBuild].join(", ")} due to ${sources.join(", ")}`);
@@ -303,6 +309,21 @@ export async function initWs(
       });
     } else if (renderLayout) {
       await inlineCritical("assets/built", "default-template.hbs", port);
+    }
+
+    if (build) {
+      for (const e of toBuild) failed.delete(e);
+      for (const e of build.failedEntries ?? []) failed.add(e);
+    }
+
+    // Judge "not imported" only once nothing is failing: a broken entry's
+    // imports are unknown, and a retry may have just discovered the file.
+    if (failed.size === 0) {
+      for (const p of unknown) {
+        if (dependentsOf(p).length === 0) {
+          notices.push(`${p} isn't imported by any entry point, so it isn't in any bundle.`);
+        }
+      }
     }
 
     const errors: BuildProblem[] = build?.errors ?? [];
