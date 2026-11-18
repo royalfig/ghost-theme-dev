@@ -44,6 +44,8 @@ import {
   PACKAGE_JSON_TEMPLATE,
   ESLINT_CONFIG_TEMPLATE,
   STYLELINT_CONFIG_TEMPLATE,
+  VSCODE_EXTENSIONS_CONTENT,
+  VSCODE_SETTINGS_CONTENT,
   DARK_MODE_CRITICAL_JS,
   DARK_MODE_HANDLER_JS,
   DARK_MODE_TOGGLE_HBS,
@@ -113,10 +115,8 @@ export async function makeSkeleton() {
       filename: "partials/email-subscription.hbs",
       content: EMAIL_SUBSCRIPTION_PARTIAL_CONTENT,
     },
-    {
-      filename: ".vscode/extensions.json",
-      content: `{"recommendations": ["TryGhost.ghost"]}`,
-    },
+    { filename: ".vscode/extensions.json", content: VSCODE_EXTENSIONS_CONTENT },
+    { filename: ".vscode/settings.json", content: VSCODE_SETTINGS_CONTENT },
     { filename: ".github/workflows/deploy-theme.yml", content: GH_ACTION_CONTENT },
     { filename: "partials/feature-image.hbs", content: FEATURE_IMAGE_PARTIAL_CONTENT },
     { filename: "locales/en.json", content: LOCALES_EN_JSON_CONTENT },
@@ -199,12 +199,108 @@ export async function parseGhostCliOutput(): Promise<string> {
   return localUrl[0];
 }
 
+interface GscanFailure {
+  ref?: string;
+  message?: string;
+}
+
+export interface GscanResult {
+  code: string;
+  rule: string;
+  fatal?: boolean;
+  failures?: GscanFailure[];
+}
+
+/** The parts of `gscan.format()`'s return value that gtb prints. */
+export interface GscanFormatted {
+  checkedVersion?: string;
+  results: {
+    error: GscanResult[];
+    warning: GscanResult[];
+    recommendation: GscanResult[];
+    hasFatalErrors?: boolean;
+  };
+}
+
+const MAX_REFS = 5;
+
+function plain(html: string): string {
+  return html
+    .replace(/<[^>]+>/g, "")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&")
+    .trim();
+}
+
+function describeFailures(failures: GscanFailure[] = []): string[] {
+  const lines = failures
+    .filter((f) => f.ref && f.ref !== "styles")
+    .map((f) => (f.message ? `${f.ref}: ${plain(f.message)}` : f.ref!));
+  const unique = [...new Set(lines)];
+  const shown = unique.slice(0, MAX_REFS);
+  if (unique.length > MAX_REFS) shown.push(`…and ${unique.length - MAX_REFS} more`);
+  return shown;
+}
+
+/**
+ * Turns gscan's formatted report into readable terminal lines. Missing
+ * editor-card styles (GS050-CSS-*) are collapsed into one entry per level,
+ * since a theme without card_assets can have dozens of them.
+ */
+export function formatGscanReport(report: GscanFormatted): string {
+  const levels = [
+    { key: "error", label: "Errors", color: chalk.red, mark: "✘" },
+    { key: "warning", label: "Warnings", color: chalk.yellow, mark: "⚠" },
+    { key: "recommendation", label: "Recommendations", color: chalk.blue, mark: "•" },
+  ] as const;
+  const out: string[] = [];
+
+  for (const { key, label, color, mark } of levels) {
+    const items = report.results[key] ?? [];
+    if (items.length === 0) continue;
+    out.push("", color.bold(`  ${label} (${items.length})`));
+
+    const cardCss = items.filter((r) => r.code.startsWith("GS050-CSS-"));
+    for (const r of items) {
+      if (cardCss.includes(r)) continue;
+      out.push(`  ${color(mark)} ${chalk.dim(r.code)} ${plain(r.rule)}`);
+      for (const line of describeFailures(r.failures)) out.push(chalk.dim(`      ${line}`));
+    }
+    if (cardCss.length > 0) {
+      const classes = cardCss.map((r) => plain(r.rule).match(/(\.[\w.-]+)/)?.[1] ?? r.code);
+      const shown = classes.slice(0, 8).join(", ");
+      const more = classes.length > 8 ? `, …and ${classes.length - 8} more` : "";
+      out.push(
+        `  ${color(mark)} ${chalk.dim("GS050")} ${cardCss.length} editor card classes have no styles in your theme CSS`,
+        chalk.dim(`      ${shown}${more}`),
+        chalk.dim(`      Style them yourself, or set "card_assets": true in package.json to load Ghost's.`),
+      );
+    }
+  }
+
+  const errors = report.results.error?.length ?? 0;
+  const warnings = report.results.warning?.length ?? 0;
+  const version = report.checkedVersion ? ` against Ghost ${report.checkedVersion}` : "";
+  out.push("");
+  if (errors > 0) {
+    out.push(chalk.red(`✘  ${errors} error(s), ${warnings} warning(s)${version}. Ghost will reject this theme until the errors are fixed.`));
+  } else if (warnings > 0) {
+    out.push(chalk.yellow(`⚠  No errors, ${warnings} warning(s)${version}. The theme will upload.`));
+  } else {
+    out.push(chalk.green(`✔  No issues found${version}.`));
+  }
+  return out.join("\n");
+}
+
 export async function checkTheme() {
   const { default: gscan } = await import("gscan");
   const report = await gscan.check(process.cwd());
-  const formattedReport = gscan.format(report);
-  console.log(formattedReport);
-  if (report.results.errorCount > 0) process.exit(1);
+  const formatted = gscan.format(report) as unknown as GscanFormatted;
+  console.log(formatGscanReport(formatted));
+  if (formatted.results.error.length > 0 || formatted.results.hasFatalErrors) process.exit(1);
 }
 
 function runLinter(label: string, args: string[]): boolean {

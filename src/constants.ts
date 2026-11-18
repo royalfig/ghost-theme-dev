@@ -384,8 +384,8 @@ export const GHOST_CSS_CONTENT = `/* Wide and full-width cards in post content (
   width: 1px;
   height: 1px;
   overflow: hidden;
-  clip-path: inset(50%);
   white-space: nowrap;
+  clip-path: inset(50%);
 }
 `;
 
@@ -419,9 +419,9 @@ export const BASE_CSS_CONTENT = `/* data-mode is set before first paint by src/j
 }
 
 body {
-  background: var(--color-bg);
-  color: var(--color-text);
   font-family: var(--font-body);
+  color: var(--color-text);
+  background: var(--color-bg);
 }
 
 h1, h2, h3, h4, h5, h6 {
@@ -600,13 +600,13 @@ export const PACKAGE_JSON_TEMPLATE = (name: string) => `{
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@royalfig/gtb": "^5.0.1",
+    "@royalfig/gtb": "^5.1.2",
     "@types/node": "^26.6.6",
     "eslint": "^10.15.0",
     "globals": "^17.14.0",
     "stylelint": "^17.16.0",
     "stylelint-config-recess-order": "^7.10.0",
-    "stylelint-config-standard": "^40.0.0",
+    "stylelint-config-recommended": "^18.0.0",
     "typescript": "~6.0.3",
     "typescript-eslint": "^8.72.2"
   },
@@ -639,13 +639,34 @@ export default defineConfig([
 ]);
 `;
 
+// recommended catches real mistakes (invalid values, unknown properties,
+// duplicates); recess-order sorts properties. Style-guide rules are left
+// out on purpose, and no-descending-specificity misfires on nested and
+// component-scoped CSS.
 export const STYLELINT_CONFIG_TEMPLATE = `{
-  "extends": ["stylelint-config-standard", "stylelint-config-recess-order"],
+  "extends": ["stylelint-config-recommended", "stylelint-config-recess-order"],
+  "allowEmptyInput": true,
+  "reportNeedlessDisables": true,
   "rules": {
-    "import-notation": null,
-    "hue-degree-notation": "number"
+    "no-descending-specificity": null
   }
-}`;
+}
+`;
+
+export const VSCODE_EXTENSIONS_CONTENT = `{
+  "recommendations": ["TryGhost.ghost", "stylelint.vscode-stylelint", "dbaeumer.vscode-eslint"]
+}
+`;
+
+// Sorts CSS properties (and applies other Stylelint fixes) on save.
+export const VSCODE_SETTINGS_CONTENT = `{
+  "css.validate": false,
+  "stylelint.validate": ["css"],
+  "editor.codeActionsOnSave": {
+    "source.fixAll.stylelint": "explicit"
+  }
+}
+`;
 
 export const EXTERNAL_ASSETS = [
   "*.png",

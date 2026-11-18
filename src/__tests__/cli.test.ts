@@ -171,6 +171,14 @@ describe("CLI Commands", () => {
         [...written.values()].flatMap((c) => [...c.matchAll(/img_url \w+ size="(\w+)"/g)].map((m) => m[1])),
       );
       for (const size of used) expect(Object.keys(pkg.config.image_sizes)).toContain(size);
+
+      // Stylelint: every extended config is installed, and properties sort on save.
+      const stylelint = JSON.parse(written.get(".stylelintrc.json")!);
+      for (const ext of stylelint.extends) expect(pkg.devDependencies).toHaveProperty(ext);
+      expect(stylelint.rules["no-descending-specificity"]).toBeNull();
+      const vscode = JSON.parse(written.get(".vscode/settings.json")!);
+      expect(vscode["editor.codeActionsOnSave"]).toHaveProperty("source.fixAll.stylelint");
+      expect(JSON.parse(written.get(".vscode/extensions.json")!).recommendations).toContain("stylelint.vscode-stylelint");
     });
 
     it("should not overwrite existing files", async () => {
@@ -209,27 +217,51 @@ describe("CLI Commands", () => {
   });
 
   describe("checkTheme", () => {
-    it("should run gscan validation", async () => {
-      vi.mocked(gscan.check).mockResolvedValue({
-        results: { errorCount: 0 },
-      } as any);
-      vi.mocked(gscan.format).mockReturnValue("Formatted report" as any);
+    // Mirrors what gscan.format() actually returns (gscan 6).
+    const formatted = (error: any[] = [], warning: any[] = []) =>
+      ({
+        checkedVersion: "6.x",
+        results: { pass: [], error, warning, recommendation: [], hasFatalErrors: false },
+      }) as any;
 
-      await checkTheme();
-      expect(gscan.check).toHaveBeenCalled();
+    const tplError = {
+      code: "GS005-TPL-ERR",
+      rule: "Templates must contain valid Handlebars",
+      failures: [{ ref: "index.hbs", message: "The partial card could not be found" }],
+    };
+    const cardCss = (cls: string) => ({
+      code: `GS050-CSS-${cls}`,
+      rule: `The <code>.${cls}</code> CSS class is required to appear styled in your theme`,
+      failures: [{ ref: "styles" }],
     });
 
-    it("should exit with code 1 on errors", async () => {
-      vi.mocked(gscan.check).mockResolvedValue({
-        results: { errorCount: 1 },
-      } as any);
-      vi.mocked(gscan.format).mockReturnValue("Formatted report" as any);
-
-      const exitSpy = vi
-        .spyOn(process, "exit")
-        .mockImplementation((() => {}) as any);
+    it("prints a readable summary instead of the raw report", async () => {
+      vi.mocked(gscan.check).mockResolvedValue({} as any);
+      vi.mocked(gscan.format).mockReturnValue(formatted([], [cardCss("kg-btn"), cardCss("kg-file-card")]));
+      const log = vi.spyOn(console, "log").mockImplementation(() => {});
+      const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {}) as any);
 
       await checkTheme();
+
+      const text = log.mock.calls.map((c) => String(c[0])).join("\n");
+      expect(text).toContain("2 editor card classes have no styles");
+      expect(text).toContain(".kg-btn, .kg-file-card");
+      expect(text).toContain("The theme will upload");
+      expect(text).not.toContain("[object Object]");
+      expect(exitSpy).not.toHaveBeenCalled();
+    });
+
+    it("lists failures and exits with code 1 on errors", async () => {
+      vi.mocked(gscan.check).mockResolvedValue({} as any);
+      vi.mocked(gscan.format).mockReturnValue(formatted([tplError]));
+      const log = vi.spyOn(console, "log").mockImplementation(() => {});
+      const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {}) as any);
+
+      await checkTheme();
+
+      const text = log.mock.calls.map((c) => String(c[0])).join("\n");
+      expect(text).toContain("GS005-TPL-ERR");
+      expect(text).toContain("index.hbs: The partial card could not be found");
       expect(exitSpy).toHaveBeenCalledWith(1);
     });
   });
